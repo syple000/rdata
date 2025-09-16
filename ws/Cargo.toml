@@ -1,0 +1,17 @@
+[package]
+name = "ws"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = {version = "1.47.1", features = ["full"]}
+tokio-tungstenite = "0.27.0"
+rate_limiter = { path = "../rate_limiter" }
+futures-util = "0.3.31"
+tokio-util = "0.7.16"
+scopeguard = "1.2.0"
+log = "0.4.28"
+time = { path = "../time" }
+
+[dev-dependencies]
+serde_json = "1.0"
