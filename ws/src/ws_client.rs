@@ -174,6 +174,26 @@ pub struct Config {
     pub heartbeat_interval: Option<Duration>,
 }
 
+impl Config {
+    // 默认配置。如果需要修改配置，可以直接修改返回的结构体字段
+    pub fn default(
+        url: String,
+        calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+        handle: Arc<dyn Fn(RecvMsg) -> Result<(), String> + Send + Sync>,
+    ) -> Self {
+        Self {
+            url,
+            send_buf_size: 1024,
+            rate_limiters: Arc::new(None),
+            calc_recv_msg_id,
+            handle,
+            connect_timeout: Some(Duration::from_millis(500)),
+            call_timeout: Some(Duration::from_millis(500)),
+            heartbeat_interval: Some(Duration::from_secs(30)),
+        }
+    }
+}
+
 pub struct Client {
     config: Config,
     send_tx: Mutex<Option<Sender<SendMsg>>>,
@@ -457,6 +477,7 @@ impl Client {
         loop {
             tokio::select! {
                 _ = shutdown_token.cancelled() => {
+                    send_rx.close();
                     return Err("shutdown".to_string());
                 }
                 msg = send_rx.recv() => {
@@ -471,6 +492,7 @@ impl Client {
                             error!("WebSocket send error: {}", e);
                         }
                     } else {
+                        send_rx.close();
                         return Err("send channel closed".to_string());
                     }
                 }
