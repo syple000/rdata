@@ -483,6 +483,9 @@ impl Client {
         interval: Duration,
         shutdown_token: CancellationToken,
     ) -> Result<(), String> {
+        defer!(
+            shutdown_token.cancel();
+        );
         let mut interval = tokio::time::interval(interval);
         loop {
             tokio::select! {
