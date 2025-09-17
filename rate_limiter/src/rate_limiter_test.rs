@@ -3,7 +3,7 @@ mod tests {
     use crate::RateLimiter;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::time::{sleep, Instant};
+    use tokio::time::{Instant, sleep};
 
     #[tokio::test]
     async fn test_new_rate_limiter() {

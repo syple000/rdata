@@ -3,13 +3,13 @@ mod tests {
     use crate::ws_client::*;
     use futures_util::{SinkExt, StreamExt};
     use rate_limiter::RateLimiter;
-    use serde_json::{json, Value};
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use serde_json::{Value, json};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::time::Duration;
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::Mutex;
-    use tokio::time::{timeout, Instant};
+    use tokio::time::{Instant, timeout};
     use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
 
     // 模拟WebSocket服务器

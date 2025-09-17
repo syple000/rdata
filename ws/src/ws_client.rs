@@ -1,5 +1,5 @@
-use futures_util::stream::{SplitSink, SplitStream, StreamExt};
 use futures_util::SinkExt;
+use futures_util::stream::{SplitSink, SplitStream, StreamExt};
 use log::{self, error, info};
 use rate_limiter::RateLimiter;
 use scopeguard::defer;
@@ -10,9 +10,9 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::{
     net::TcpStream,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
 };
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone)]
