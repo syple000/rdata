@@ -1,5 +1,5 @@
-use futures_util::SinkExt;
 use futures_util::stream::{SplitSink, SplitStream, StreamExt};
+use futures_util::SinkExt;
 use log::{self, error, info};
 use rate_limiter::RateLimiter;
 use scopeguard::defer;
@@ -10,10 +10,12 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::{
     net::TcpStream,
-    sync::mpsc::{Receiver, Sender, channel},
+    sync::mpsc::{channel, Receiver, Sender},
 };
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tokio_util::sync::CancellationToken;
+
+use crate::WsError;
 
 #[derive(Debug, Clone)]
 pub enum SendMsg {
@@ -199,7 +201,7 @@ pub struct Client {
     send_tx: Mutex<Option<Sender<SendMsg>>>,
     shutdown_token: Mutex<Option<CancellationToken>>,
     sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
-    join_handles: Mutex<Vec<JoinHandle<Result<(), String>>>>,
+    join_handles: Mutex<Vec<JoinHandle<Result<(), WsError>>>>,
 }
 
 impl Client {
@@ -219,7 +221,7 @@ impl Client {
         token_guard.clone()
     }
 
-    pub async fn connect(&self) -> Result<(), String> {
+    pub async fn connect(&self) -> Result<(), WsError> {
         let connect_timeout = self
             .config
             .connect_timeout
@@ -232,11 +234,11 @@ impl Client {
             }
             Ok(Err(e)) => {
                 error!("WebSocket connect error: {}", e);
-                return Err(e.to_string());
+                return Err(WsError::ConnectionError(e.to_string()));
             }
             Err(e) => {
                 error!("WebSocket connect timeout: {}", e);
-                return Err("connect timeout".to_string());
+                return Err(WsError::ConnectionTimeout(e.to_string()));
             }
         };
         let (sender, receiver) = ws_stream.split();
@@ -299,12 +301,10 @@ impl Client {
         Ok(())
     }
 
-    pub async fn disconnect(&self) -> Result<(), String> {
+    pub async fn disconnect(&self) -> Result<(), WsError> {
         {
             let token_guard = self.shutdown_token.lock().await;
-            if let Some(token) = &*token_guard {
-                token.cancel();
-            }
+            token_guard.as_ref().unwrap().cancel();
         }
         {
             let mut join_handles_guard = self.join_handles.lock().await;
@@ -317,18 +317,21 @@ impl Client {
         Ok(())
     }
 
-    pub async fn send(&self, msg: SendMsg) -> Result<(), String> {
+    pub async fn send(&self, msg: SendMsg) -> Result<(), WsError> {
         let send_tx = self.send_tx.lock().await;
-        if let Some(send_tx) = send_tx.as_ref() {
-            send_tx.send(msg).await.map_err(|e| e.to_string())
-        } else {
-            Err("send channel not initialized".to_string())
-        }
+        let send_tx = match send_tx.as_ref() {
+            Some(tx) => tx,
+            None => return Err(WsError::Disconnected),
+        };
+        send_tx
+            .send(msg)
+            .await
+            .map_err(|e| WsError::ChannelClosed(e.to_string()))
     }
 
-    pub async fn call(&self, msg: SendMsg) -> Result<RecvMsg, String> {
+    pub async fn call(&self, msg: SendMsg) -> Result<RecvMsg, WsError> {
         if msg.msg_id().is_none() {
-            return Err("msg_id is required for call".to_string());
+            return Err(WsError::MsgIdRequired);
         }
         let msg_id = msg.msg_id().unwrap();
 
@@ -337,23 +340,23 @@ impl Client {
         let shutdown_token: CancellationToken;
         {
             let shutdown_token_guard = self.shutdown_token.lock().await;
-            if shutdown_token_guard.is_none() {
-                return Err("client is not connected".to_string());
-            }
-            shutdown_token = shutdown_token_guard.as_ref().unwrap().clone();
+            shutdown_token = match shutdown_token_guard.as_ref() {
+                Some(token) => token.clone(),
+                None => return Err(WsError::Disconnected),
+            };
         }
 
         {
             let send_tx = self.send_tx.lock().await;
-            if let Some(send_tx) = send_tx.as_ref() {
-                let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
-                sync_call_chs_guard.insert(msg_id.clone(), resp_tx);
-                if let Err(e) = send_tx.send(msg).await {
-                    sync_call_chs_guard.remove(&msg_id);
-                    return Err(format!("{:?}", e));
-                }
-            } else {
-                return Err("send channel not initialized".to_string());
+            let send_tx = match send_tx.as_ref() {
+                Some(tx) => tx,
+                None => return Err(WsError::Disconnected),
+            };
+            let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
+            sync_call_chs_guard.insert(msg_id.clone(), resp_tx);
+            if let Err(e) = send_tx.send(msg).await {
+                sync_call_chs_guard.remove(&msg_id);
+                return Err(WsError::ChannelClosed(e.to_string()));
             }
         }
 
@@ -365,19 +368,15 @@ impl Client {
             _ = tokio::time::sleep(timeout) => {
                 let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
                 sync_call_chs_guard.remove(&msg_id);
-                return Err("call timeout".to_string());
+                return Err(WsError::CallTimeout);
             }
             resp = resp_rx.recv() => {
-                if let Some(resp) = resp {
-                    return Ok(resp);
-                } else {
-                    return Err("response channel closed".to_string());
-                }
+                return Ok(resp.unwrap());
             }
             _ = shutdown_token.cancelled() => {
                 let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
                 sync_call_chs_guard.remove(&msg_id);
-                return Err("client is shutting down".to_string());
+                return Err(WsError::Disconnected);
             }
         }
     }
@@ -389,23 +388,23 @@ impl Client {
         handle: Arc<dyn Fn(RecvMsg) -> Result<(), String> + Send + Sync>,
         send_tx: Sender<SendMsg>,
         shutdown_token: CancellationToken,
-    ) -> Result<(), String> {
+    ) -> Result<(), WsError> {
         defer!(
             shutdown_token.cancel();
         );
         loop {
             tokio::select! {
                 _ = shutdown_token.cancelled() => {
-                    return Err("shutdown".to_string());
+                    return Err(WsError::Disconnected);
                 }
                 msg = receiver.next() => {
                     if let None = msg {
-                        return Err("connection closed".to_string());
+                        return Err(WsError::RecvError("recv msg is none".to_string()));
                     }
                     let msg = msg.unwrap();
                     if let Err(e) = msg {
                         error!("WebSocket receive error: {}", e);
-                        return Err(e.to_string());
+                        return Err(WsError::RecvError(e.to_string()));
                     }
                     let msg = msg.unwrap();
                     if let Some(recv_msg) = RecvMsg::from_websocket_message(msg, calc_recv_msg_id.as_ref()) {
@@ -439,7 +438,10 @@ impl Client {
                                         data: data_str.as_bytes().to_vec(),
                                         weight: None
                                     };
-                                    _ = send_tx.send(pong_msg).await;
+                                    if let Err(e) = send_tx.send(pong_msg).await {
+                                        error!("Failed to send Pong: {}", e);
+                                        return Err(WsError::ChannelClosed(e.to_string()));
+                                    }
                                 }
                             },
                             RecvMsg::Pong { data } => {
@@ -453,12 +455,12 @@ impl Client {
                             },
                             RecvMsg::Close { code, reason } => {
                                 info!("WebSocket connection closed: code={:?}, reason={:?}", code, reason);
-                                return Err("connection closed".to_string());
+                                return Err(WsError::RecvError("connection closed".to_string()));
                             }
                         }
                     } else {
                         error!("Unsupported WebSocket message type");
-                        return Err("unsupported message type".to_string());
+                        return Err(WsError::RecvError("unsupported message type".to_string()));
                     }
                 }
             }
@@ -470,7 +472,7 @@ impl Client {
         mut send_rx: Receiver<SendMsg>,
         rate_limiters: Arc<Option<Vec<RateLimiter>>>,
         shutdown_token: CancellationToken,
-    ) -> Result<(), String> {
+    ) -> Result<(), WsError> {
         defer!(
             shutdown_token.cancel();
         );
@@ -478,22 +480,23 @@ impl Client {
             tokio::select! {
                 _ = shutdown_token.cancelled() => {
                     send_rx.close();
-                    return Err("shutdown".to_string());
+                    return Err(WsError::Disconnected);
                 }
                 msg = send_rx.recv() => {
                     if let Some(msg) = msg {
                         let weight = msg.weight().unwrap_or(1);
                         if let Some(limiters) = rate_limiters.as_ref() {
                             for limiter in limiters.iter() {
-                                limiter.wait(weight).await.map_err(|e| e.to_string())?;
+                                limiter.wait(weight).await.map_err(|e| WsError::RateLimiterError(e))?;
                             }
                         }
                         if let Err(e) = sender.send(msg.to_websocket_message()).await {
                             error!("WebSocket send error: {}", e);
+                            return Err(WsError::SendError(e.to_string()));
                         }
                     } else {
                         send_rx.close();
-                        return Err("send channel closed".to_string());
+                        return Err(WsError::ChannelClosed("send channel closed".to_string()));
                     }
                 }
             }
@@ -504,7 +507,7 @@ impl Client {
         send_tx: Sender<SendMsg>,
         interval: Duration,
         shutdown_token: CancellationToken,
-    ) -> Result<(), String> {
+    ) -> Result<(), WsError> {
         defer!(
             shutdown_token.cancel();
         );
@@ -512,7 +515,7 @@ impl Client {
         loop {
             tokio::select! {
                 _ = shutdown_token.cancelled() => {
-                    return Err("shutdown".to_string());
+                    return Err(WsError::Disconnected);
                 }
                 _ = interval.tick() => {
                     let now_ts = time::get_current_nano_timestamp() / 1000000;
@@ -522,6 +525,7 @@ impl Client {
                     };
                     if let Err(e) = send_tx.send(heartbeat_msg).await {
                         error!("Failed to send heartbeat: {}", e);
+                        return Err(WsError::ChannelClosed(e.to_string()));
                     }
                 }
             }

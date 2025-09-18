@@ -1,15 +1,16 @@
 #[cfg(test)]
 mod tests {
+    use crate::error::WsError;
     use crate::ws_client::*;
     use futures_util::{SinkExt, StreamExt};
     use rate_limiter::RateLimiter;
-    use serde_json::{Value, json};
-    use std::sync::Arc;
+    use serde_json::{json, Value};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::Mutex;
-    use tokio::time::{Instant, timeout};
+    use tokio::time::{timeout, Instant};
     use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
 
     // 模拟WebSocket服务器
@@ -367,7 +368,7 @@ mod tests {
         assert!(result.is_err(), "Call should timeout");
         assert!(elapsed >= Duration::from_millis(500));
         assert!(elapsed < Duration::from_millis(700)); // 允许一些误差
-        assert_eq!(result.unwrap_err(), "call timeout");
+        assert!(matches!(result.unwrap_err(), WsError::CallTimeout));
 
         client.disconnect().await.unwrap();
         server.shutdown();
@@ -402,7 +403,7 @@ mod tests {
 
         let result = client.call(send_msg).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "msg_id is required for call");
+        assert!(matches!(result.unwrap_err(), WsError::MsgIdRequired));
 
         client.disconnect().await.unwrap();
         server.shutdown();
@@ -560,7 +561,7 @@ mod tests {
 
         let result = client.send(send_msg).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "send channel not initialized");
+        assert!(matches!(result.unwrap_err(), WsError::Disconnected));
     }
 
     #[tokio::test]
@@ -587,7 +588,7 @@ mod tests {
 
         let result = client.call(send_msg).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "client is not connected");
+        assert!(matches!(result.unwrap_err(), WsError::Disconnected));
     }
 
     #[tokio::test]

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 tokio = {version = "1.47.1", features = ["full"]}
 time = {path = "../time"}
+thiserror = "2.0.16"

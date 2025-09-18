@@ -1,3 +1,4 @@
+use crate::error::{RateLimiterError, Result};
 use std::time::Duration;
 use time::get_current_nano_timestamp;
 use tokio::sync::Mutex;
@@ -50,15 +51,12 @@ impl RateLimiter {
         }
     }
 
-    pub async fn allow(&self, weight: u64) -> Result<(), String> {
+    pub async fn allow(&self, weight: u64) -> Result<()> {
         if weight == 0 {
-            return Err("weight must be greater than 0".to_string());
+            return Err(RateLimiterError::InvalidWeight);
         }
         if weight > self.max_weight_limit {
-            return Err(format!(
-                "weight must be less than or equal to max_weight_limit: {}",
-                self.max_weight_limit
-            ));
+            return Err(RateLimiterError::WeightExceeded(self.max_weight_limit));
         }
 
         let mut inner = self.inner.lock().await;
@@ -67,7 +65,7 @@ impl RateLimiter {
         inner.cleanup(timestamp - self.max_window_range.as_nanos());
 
         if inner.weight_sum + weight > self.max_weight_limit {
-            return Err("exceed max_weight_limit".to_string());
+            return Err(RateLimiterError::MaxWeightLimitExceeded);
         }
 
         let end = inner.end;
@@ -79,15 +77,12 @@ impl RateLimiter {
         Ok(())
     }
 
-    pub async fn wait(&self, weight: u64) -> Result<(), String> {
+    pub async fn wait(&self, weight: u64) -> Result<()> {
         if weight == 0 {
-            return Err("weight must be greater than 0".to_string());
+            return Err(RateLimiterError::InvalidWeight);
         }
         if weight > self.max_weight_limit {
-            return Err(format!(
-                "weight must be less than or equal to max_weight_limit: {}",
-                self.max_weight_limit
-            ));
+            return Err(RateLimiterError::WeightExceeded(self.max_weight_limit));
         }
 
         loop {
