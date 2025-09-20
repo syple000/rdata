@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::{RateLimiter, RateLimiterError};
 use std::sync::Arc;
 use std::time::Duration;

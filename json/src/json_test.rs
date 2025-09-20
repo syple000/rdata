@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::json::{dump, dumps, load, loads};
 use std::fs;
 

@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::error::WsError;
 use crate::ws_client::*;
 use futures_util::{SinkExt, StreamExt};
