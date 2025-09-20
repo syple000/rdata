@@ -161,13 +161,13 @@ mod tests {
 
     // 测试用的消息处理函数
     fn create_test_handler() -> (
-        Arc<dyn Fn(RecvMsg) -> Result<(), String> + Send + Sync>,
+        Arc<dyn Fn(RecvMsg) -> Result<(), WsError> + Send + Sync>,
         Arc<Mutex<Vec<RecvMsg>>>,
     ) {
         let received_messages = Arc::new(Mutex::new(Vec::new()));
         let received_messages_clone = received_messages.clone();
 
-        let handler = Arc::new(move |msg: RecvMsg| -> Result<(), String> {
+        let handler = Arc::new(move |msg: RecvMsg| -> Result<(), WsError> {
             let received_messages = received_messages_clone.clone();
             tokio::spawn(async move {
                 let mut messages = received_messages.lock().await;
@@ -194,12 +194,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
 
         // 测试连接
         let result = client.connect().await;
@@ -230,12 +230,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         client.connect().await.unwrap();
 
         // 发送消息
@@ -287,12 +287,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(2000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(2000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         client.connect().await.unwrap();
 
         // 发送同步调用
@@ -342,12 +342,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(500)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(500),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         client.connect().await.unwrap();
 
         let request = json!({
@@ -368,7 +368,7 @@ mod tests {
         assert!(result.is_err(), "Call should timeout");
         assert!(elapsed >= Duration::from_millis(500));
         assert!(elapsed < Duration::from_millis(700)); // 允许一些误差
-        assert!(matches!(result.unwrap_err(), WsError::CallTimeout));
+        assert!(matches!(result.unwrap_err(), WsError::Client { .. }));
 
         client.disconnect().await.unwrap();
         server.shutdown();
@@ -387,12 +387,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         client.connect().await.unwrap();
 
         let send_msg = SendMsg::Text {
@@ -403,7 +403,7 @@ mod tests {
 
         let result = client.call(send_msg).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WsError::MsgIdRequired));
+        assert!(matches!(result.unwrap_err(), WsError::Client { .. }));
 
         client.disconnect().await.unwrap();
         server.shutdown();
@@ -428,12 +428,12 @@ mod tests {
             rate_limiters: Arc::new(Some(rate_limiters)),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         client.connect().await.unwrap();
 
         let ts1 = time::get_current_nano_timestamp();
@@ -501,12 +501,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(100)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(100),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         client.connect().await.unwrap();
 
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -524,12 +524,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
         let result = client.connect().await;
         assert!(
             result.is_err(),
@@ -546,12 +546,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
 
         let send_msg = SendMsg::Text {
             msg_id: None,
@@ -561,7 +561,7 @@ mod tests {
 
         let result = client.send(send_msg).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WsError::Disconnected));
+        assert!(matches!(result.unwrap_err(), WsError::Client { .. }));
     }
 
     #[tokio::test]
@@ -573,12 +573,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(1000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(1000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Client::new(config);
+        let client = Client::new(config).unwrap();
 
         let send_msg = SendMsg::Text {
             msg_id: Some("test".to_string()),
@@ -588,7 +588,7 @@ mod tests {
 
         let result = client.call(send_msg).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WsError::Disconnected));
+        assert!(matches!(result.unwrap_err(), WsError::Client { .. }));
     }
 
     #[tokio::test]
@@ -606,12 +606,12 @@ mod tests {
             rate_limiters: Arc::new(None),
             calc_recv_msg_id: Arc::new(calc_test_msg_id),
             handle: handler,
-            connect_timeout: Some(Duration::from_millis(1000)),
-            call_timeout: Some(Duration::from_millis(2000)),
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            connect_timeout: Duration::from_millis(1000),
+            call_timeout: Duration::from_millis(2000),
+            heartbeat_interval: Duration::from_millis(1000),
         };
 
-        let client = Arc::new(Client::new(config));
+        let client = Arc::new(Client::new(config).unwrap());
         client.connect().await.unwrap();
 
         let mut handles = Vec::new();

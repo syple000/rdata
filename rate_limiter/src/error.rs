@@ -2,14 +2,29 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum RateLimiterError {
-    #[error("weight must be greater than 0")]
-    InvalidWeight,
+    #[error("invalid weight: {message}")]
+    InvalidWeight { message: String },
 
-    #[error("weight must be less than or equal to max_weight_limit: {0}")]
-    WeightExceeded(u64),
+    #[error("reach rate limit")]
+    Limited,
+}
 
-    #[error("exceed max_weight_limit")]
-    MaxWeightLimitExceeded,
+impl RateLimiterError {
+    pub fn invalid_weight() -> Self {
+        RateLimiterError::InvalidWeight {
+            message: "weight must be greater than 0".to_string(),
+        }
+    }
+
+    pub fn weight_exceeded(max: u64) -> Self {
+        RateLimiterError::InvalidWeight {
+            message: format!("weight exceeds max limit: {}", max),
+        }
+    }
+
+    pub fn max_weight_limit_exceeded() -> Self {
+        RateLimiterError::Limited
+    }
 }
 
 pub type Result<T> = std::result::Result<T, RateLimiterError>;

@@ -1,3 +1,4 @@
+use crate::{Result, WsError};
 use futures_util::stream::{SplitSink, SplitStream, StreamExt};
 use futures_util::SinkExt;
 use log::{self, error, info};
@@ -14,8 +15,6 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tokio_util::sync::CancellationToken;
-
-use crate::WsError;
 
 #[derive(Debug, Clone)]
 pub enum SendMsg {
@@ -170,7 +169,7 @@ pub struct Config {
     pub send_buf_size: usize,
     pub rate_limiters: Arc<Option<Vec<RateLimiter>>>,
     pub calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-    pub handle: Arc<dyn Fn(RecvMsg) -> Result<(), WsError> + Send + Sync>,
+    pub handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
     pub connect_timeout: Duration,
     pub call_timeout: Duration,
     pub heartbeat_interval: Duration,
@@ -181,7 +180,7 @@ impl Config {
     pub fn default(
         url: String,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-        handle: Arc<dyn Fn(RecvMsg) -> Result<(), WsError> + Send + Sync>,
+        handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
     ) -> Self {
         Self {
             url,
@@ -201,11 +200,11 @@ pub struct Client {
     send_tx: Mutex<Option<Sender<SendMsg>>>,
     shutdown_token: Mutex<Option<CancellationToken>>,
     sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
-    join_handles: Mutex<Vec<JoinHandle<Result<(), WsError>>>>,
+    join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
 }
 
 impl Client {
-    pub fn new(config: Config) -> Result<Self, WsError> {
+    pub fn new(config: Config) -> Result<Self> {
         if config.url.is_empty() {
             return Err(WsError::invalid_url(config.url));
         }
@@ -236,7 +235,7 @@ impl Client {
         token_guard.clone()
     }
 
-    pub async fn connect(&self) -> Result<(), WsError> {
+    pub async fn connect(&self) -> Result<()> {
         let connect_timeout = self.config.connect_timeout.clone();
         let result = tokio::time::timeout(connect_timeout, connect_async(&self.config.url)).await;
         let (ws_stream, _) = match result {
@@ -311,7 +310,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn disconnect(&self) -> Result<(), WsError> {
+    pub async fn disconnect(&self) -> Result<()> {
         {
             let token_guard = self.shutdown_token.lock().await;
             if token_guard.is_none() {
@@ -333,7 +332,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn send(&self, msg: SendMsg) -> Result<(), WsError> {
+    pub async fn send(&self, msg: SendMsg) -> Result<()> {
         let send_tx = self.send_tx.lock().await;
         let send_tx = match send_tx.as_ref() {
             Some(tx) => tx,
@@ -345,7 +344,7 @@ impl Client {
             .map_err(|e| WsError::channel_closed("send_tx".to_string(), e.to_string()))
     }
 
-    pub async fn call(&self, msg: SendMsg) -> Result<RecvMsg, WsError> {
+    pub async fn call(&self, msg: SendMsg) -> Result<RecvMsg> {
         if msg.msg_id().is_none() {
             return Err(WsError::message_id_required());
         }
@@ -404,10 +403,10 @@ impl Client {
         mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
         sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
-        handle: Arc<dyn Fn(RecvMsg) -> Result<(), WsError> + Send + Sync>,
+        handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
         send_tx: Sender<SendMsg>,
         shutdown_token: CancellationToken,
-    ) -> Result<(), WsError> {
+    ) -> Result<()> {
         defer!(
             shutdown_token.cancel();
         );
@@ -484,7 +483,7 @@ impl Client {
         mut send_rx: Receiver<SendMsg>,
         rate_limiters: Arc<Option<Vec<RateLimiter>>>,
         shutdown_token: CancellationToken,
-    ) -> Result<(), WsError> {
+    ) -> Result<()> {
         defer!(
             shutdown_token.cancel();
         );
@@ -519,7 +518,7 @@ impl Client {
         send_tx: Sender<SendMsg>,
         interval: Duration,
         shutdown_token: CancellationToken,
-    ) -> Result<(), WsError> {
+    ) -> Result<()> {
         defer!(
             shutdown_token.cancel();
         );

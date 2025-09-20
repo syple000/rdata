@@ -28,11 +28,10 @@ mod tests {
         // 测试权重为0的错误情况
         let result = limiter.allow(0).await;
         assert!(result.is_err());
-        if let RateLimiterError::InvalidWeight = result.unwrap_err() {
-            // 错误类型正确
-        } else {
-            panic!("Expected RateLimiterError::InvalidWeight");
-        }
+        assert!(matches!(
+            result.unwrap_err(),
+            RateLimiterError::InvalidWeight { .. }
+        ));
     }
 
     #[tokio::test]
@@ -42,11 +41,10 @@ mod tests {
         // 测试权重超过最大限制的错误情况
         let result = limiter.allow(15).await;
         assert!(result.is_err());
-        if let RateLimiterError::WeightExceeded(max) = result.unwrap_err() {
-            assert_eq!(max, 10);
-        } else {
-            panic!("Expected RateLimiterError::WeightExceeded");
-        }
+        assert!(matches!(
+            result.unwrap_err(),
+            RateLimiterError::InvalidWeight { .. }
+        ));
     }
 
     #[tokio::test]
@@ -59,11 +57,7 @@ mod tests {
         // 再添加权重5的请求，应该超过限制
         let result = limiter.allow(5).await;
         assert!(result.is_err());
-        if let RateLimiterError::MaxWeightLimitExceeded = result.unwrap_err() {
-            // 错误类型正确
-        } else {
-            panic!("Expected RateLimiterError::MaxWeightLimitExceeded");
-        }
+        assert!(matches!(result.unwrap_err(), RateLimiterError::Limited));
     }
 
     #[tokio::test]
@@ -76,11 +70,7 @@ mod tests {
         // 再添加任何权重都应该失败
         let result = limiter.allow(1).await;
         assert!(result.is_err());
-        if let RateLimiterError::MaxWeightLimitExceeded = result.unwrap_err() {
-            // 错误类型正确
-        } else {
-            panic!("Expected RateLimiterError::MaxWeightLimitExceeded");
-        }
+        assert!(matches!(result.unwrap_err(), RateLimiterError::Limited));
     }
 
     #[tokio::test]
@@ -117,11 +107,10 @@ mod tests {
         // 测试权重为0的错误情况
         let result = limiter.wait(0).await;
         assert!(result.is_err());
-        if let RateLimiterError::InvalidWeight = result.unwrap_err() {
-            // 错误类型正确
-        } else {
-            panic!("Expected RateLimiterError::InvalidWeight");
-        }
+        assert!(matches!(
+            result.unwrap_err(),
+            RateLimiterError::InvalidWeight { .. }
+        ));
     }
 
     #[tokio::test]
@@ -131,11 +120,10 @@ mod tests {
         // 测试权重超过最大限制的错误情况
         let result = limiter.wait(15).await;
         assert!(result.is_err());
-        if let RateLimiterError::WeightExceeded(max) = result.unwrap_err() {
-            assert_eq!(max, 10);
-        } else {
-            panic!("Expected RateLimiterError::WeightExceeded");
-        }
+        assert!(matches!(
+            result.unwrap_err(),
+            RateLimiterError::InvalidWeight { .. }
+        ));
     }
 
     #[tokio::test]
@@ -187,11 +175,7 @@ mod tests {
         // 现在应该达到限制
         let result = limiter.allow(1).await;
         assert!(result.is_err());
-        if let RateLimiterError::MaxWeightLimitExceeded = result.unwrap_err() {
-            // 错误类型正确
-        } else {
-            panic!("Expected RateLimiterError::MaxWeightLimitExceeded");
-        }
+        assert!(matches!(result.unwrap_err(), RateLimiterError::Limited));
     }
 
     #[tokio::test]
@@ -305,11 +289,7 @@ mod tests {
         // 现在应该达到限制
         let result = limiter.allow(1).await;
         assert!(result.is_err());
-        if let RateLimiterError::MaxWeightLimitExceeded = result.unwrap_err() {
-            // 错误类型正确
-        } else {
-            panic!("Expected RateLimiterError::MaxWeightLimitExceeded");
-        }
+        assert!(matches!(result.unwrap_err(), RateLimiterError::Limited));
     }
 
     #[tokio::test]

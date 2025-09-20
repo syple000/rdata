@@ -53,10 +53,10 @@ impl RateLimiter {
 
     pub async fn allow(&self, weight: u64) -> Result<()> {
         if weight == 0 {
-            return Err(RateLimiterError::InvalidWeight);
+            return Err(RateLimiterError::invalid_weight());
         }
         if weight > self.max_weight_limit {
-            return Err(RateLimiterError::WeightExceeded(self.max_weight_limit));
+            return Err(RateLimiterError::weight_exceeded(self.max_weight_limit));
         }
 
         let mut inner = self.inner.lock().await;
@@ -65,7 +65,7 @@ impl RateLimiter {
         inner.cleanup(timestamp - self.max_window_range.as_nanos());
 
         if inner.weight_sum + weight > self.max_weight_limit {
-            return Err(RateLimiterError::MaxWeightLimitExceeded);
+            return Err(RateLimiterError::Limited);
         }
 
         let end = inner.end;
@@ -79,10 +79,10 @@ impl RateLimiter {
 
     pub async fn wait(&self, weight: u64) -> Result<()> {
         if weight == 0 {
-            return Err(RateLimiterError::InvalidWeight);
+            return Err(RateLimiterError::invalid_weight());
         }
         if weight > self.max_weight_limit {
-            return Err(RateLimiterError::WeightExceeded(self.max_weight_limit));
+            return Err(RateLimiterError::weight_exceeded(self.max_weight_limit));
         }
 
         loop {
