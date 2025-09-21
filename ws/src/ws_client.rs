@@ -167,7 +167,7 @@ impl RecvMsg {
 pub struct Config {
     pub url: String,
     pub send_buf_size: usize,
-    pub rate_limiters: Arc<Option<Vec<RateLimiter>>>,
+    pub rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     pub calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
     pub handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
     pub connect_timeout: Duration,
@@ -185,7 +185,7 @@ impl Config {
         Self {
             url,
             send_buf_size: 1024,
-            rate_limiters: Arc::new(None),
+            rate_limiters: None,
             calc_recv_msg_id,
             handle,
             connect_timeout: Duration::from_millis(1000),
@@ -481,7 +481,7 @@ impl Client {
     async fn send_loop(
         mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
         mut send_rx: Receiver<SendMsg>,
-        rate_limiters: Arc<Option<Vec<RateLimiter>>>,
+        rate_limiters: Option<Arc<Vec<RateLimiter>>>,
         shutdown_token: CancellationToken,
     ) -> Result<()> {
         defer!(

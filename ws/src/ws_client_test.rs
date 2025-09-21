@@ -189,7 +189,7 @@ async fn test_basic_connect_and_disconnect() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -225,7 +225,7 @@ async fn test_send_message() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -282,7 +282,7 @@ async fn test_synchronous_call() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -337,7 +337,7 @@ async fn test_call_timeout() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -382,7 +382,7 @@ async fn test_call_without_msg_id() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -423,7 +423,7 @@ async fn test_rate_limiter() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(Some(rate_limiters)),
+        rate_limiters: Some(Arc::new(rate_limiters)),
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -496,7 +496,7 @@ async fn test_ping_pong_handling() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -519,7 +519,7 @@ async fn test_connection_error() {
     let config = Config {
         url: "ws://127.0.0.1:9999".to_string(), // 不存在的服务器
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -541,7 +541,7 @@ async fn test_send_before_connect() {
     let config = Config {
         url: "ws://127.0.0.1:8088".to_string(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -568,7 +568,7 @@ async fn test_call_before_connect() {
     let config = Config {
         url: "ws://127.0.0.1:8089".to_string(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
@@ -601,7 +601,7 @@ async fn test_multiple_concurrent_calls() {
     let config = Config {
         url: server.get_url(),
         send_buf_size: 100,
-        rate_limiters: Arc::new(None),
+        rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
         handle: handler,
         connect_timeout: Duration::from_millis(1000),
