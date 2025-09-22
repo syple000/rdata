@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 tokio = {version = "1.47.1", features = ["full"]}
-tokio-tungstenite = "0.27.0"
+tokio-tungstenite = {version = "0.27.0", features = ["rustls-tls-webpki-roots"]}
 rate_limiter = { path = "../rate_limiter" }
 futures-util = "0.3.31"
 tokio-util = "0.7.16"
