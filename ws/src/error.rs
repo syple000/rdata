@@ -17,6 +17,9 @@ pub enum WsError {
 
     #[error(transparent)]
     External(#[from] ExternalError),
+
+    #[error("handle error: {message}")]
+    HandleError { message: String },
 }
 
 #[derive(Debug, Error)]

@@ -3,6 +3,7 @@ use crate::ws_client::*;
 use futures_util::{SinkExt, StreamExt};
 use rate_limiter::RateLimiter;
 use serde_json::{json, Value};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -159,20 +160,24 @@ fn calc_test_msg_id(msg: &str) -> Option<String> {
 
 // 测试用的消息处理函数
 fn create_test_handler() -> (
-    Arc<dyn Fn(RecvMsg) -> Result<(), WsError> + Send + Sync>,
+    Arc<dyn Fn(RecvMsg) -> Pin<Box<dyn Future<Output = Result<(), WsError>> + Send>> + Send + Sync>,
     Arc<Mutex<Vec<RecvMsg>>>,
 ) {
     let received_messages = Arc::new(Mutex::new(Vec::new()));
     let received_messages_clone = received_messages.clone();
 
-    let handler = Arc::new(move |msg: RecvMsg| -> Result<(), WsError> {
-        let received_messages = received_messages_clone.clone();
-        tokio::spawn(async move {
-            let mut messages = received_messages.lock().await;
-            messages.push(msg);
-        });
-        Ok(())
-    });
+    let handler = Arc::new(
+        move |msg: RecvMsg| -> Pin<Box<dyn Future<Output = Result<(), WsError>> + Send>> {
+            let received_messages = received_messages_clone.clone();
+            Box::pin(async move {
+                tokio::spawn(async move {
+                    let mut messages = received_messages.lock().await;
+                    messages.push(msg);
+                });
+                Ok(())
+            })
+        },
+    );
 
     (handler, received_messages)
 }

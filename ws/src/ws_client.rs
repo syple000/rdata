@@ -5,6 +5,7 @@ use log::{self, error, info};
 use rate_limiter::RateLimiter;
 use scopeguard::defer;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -169,7 +170,8 @@ pub struct Config {
     pub send_buf_size: usize,
     pub rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     pub calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-    pub handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
+    pub handle:
+        Arc<dyn Fn(RecvMsg) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync>,
     pub connect_timeout: Duration,
     pub call_timeout: Duration,
     pub heartbeat_interval: Duration,
@@ -180,7 +182,9 @@ impl Config {
     pub fn default(
         url: String,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-        handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
+        handle: Arc<
+            dyn Fn(RecvMsg) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync,
+        >,
     ) -> Self {
         Self {
             url,
@@ -403,7 +407,9 @@ impl Client {
         mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
         sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
-        handle: Arc<dyn Fn(RecvMsg) -> Result<()> + Send + Sync>,
+        handle: Arc<
+            dyn Fn(RecvMsg) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync,
+        >,
         send_tx: Sender<SendMsg>,
         shutdown_token: CancellationToken,
     ) -> Result<()> {
@@ -443,7 +449,7 @@ impl Client {
                                         error!("failed to send message to sync call channel: {}", e);
                                     }
                                 } else {
-                                    if let Err(e) = handle(recv_msg) {
+                                    if let Err(e) = handle(recv_msg).await {
                                         error!("failed to handle message: {}", e);
                                     }
                                 }
