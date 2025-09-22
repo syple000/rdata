@@ -192,7 +192,7 @@ impl MarketStream {
     pub async fn init(&self) -> Result<()> {
         let sub_details = Arc::new(self.sub_details.clone());
         let update_depth_cb = self.update_depth_cb.clone();
-        let config = ws::Config::default(
+        let mut config = ws::Config::default(
             self.url.clone(),
             Arc::new(Self::calc_recv_msg_id),
             Arc::new(move |msg: RecvMsg| {
@@ -201,6 +201,7 @@ impl MarketStream {
                 Box::pin(async move { Self::handle(msg, sub_details, update_depth_cb).await })
             }),
         );
+        config.rate_limiters = self.rate_limiters.clone();
 
         let ws_client = ws::Client::new(config).map_err(|e| {
             error!("WebSocket client error: {:?}", e);

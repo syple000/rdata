@@ -34,7 +34,7 @@ async fn test_market_stream_depth_update() {
         .is_test(true)
         .try_init();
 
-    let mut market_stream = MarketStream::new(SPOT_WSS_API_URL.to_string(), None);
+    let mut market_stream = MarketStream::new(SPOT_WSS_URL.to_string() + "/stream", None);
 
     market_stream.subscribe_depth_update("BTCUSDT");
 
