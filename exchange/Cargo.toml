@@ -22,3 +22,4 @@ time = { path = "../time" }
 rate_limiter = { path = "../rate_limiter" }
 ws = { path = "../ws" }
 rand = "0.9.2"
+rustls = {version = "0.23.32", features = ["ring"]}

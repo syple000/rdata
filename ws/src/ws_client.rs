@@ -192,8 +192,8 @@ impl Config {
             rate_limiters: None,
             calc_recv_msg_id,
             handle,
-            connect_timeout: Duration::from_millis(1000),
-            call_timeout: Duration::from_millis(1000),
+            connect_timeout: Duration::from_millis(10000),
+            call_timeout: Duration::from_millis(10000),
             heartbeat_interval: Duration::from_secs(30),
         }
     }
