@@ -1,3 +1,3 @@
-mod market;
+pub mod market;
 
 pub use market::*;

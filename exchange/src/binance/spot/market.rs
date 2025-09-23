@@ -291,6 +291,9 @@ impl MarketStream {
                 return Ok(());
             }
         };
+
+        info!("Received message: {}", text);
+
         #[derive(Deserialize)]
         struct StreamMsg<'a> {
             stream: String,
