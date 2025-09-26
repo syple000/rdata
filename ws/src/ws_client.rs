@@ -269,10 +269,33 @@ impl Client {
             .await
             .map_err(|_| WsError::connection_timeout(proxy_url_str.clone(), connect_timeout))?
             .map_err(|e| WsError::connection_failed(proxy_url_str.clone(), e))?;
-            let (ws_stream, _) = client_async(&self.config.url, proxy_stream)
-                .await
-                .map_err(|e| WsError::connection_failed(self.config.url.clone(), e))?;
-            self.initialize_stream(ws_stream).await
+
+            if url.scheme() == "wss" {
+                let root_cert_store = rustls::RootCertStore {
+                    roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
+                };
+                let config = Arc::new(
+                    tokio_rustls::rustls::ClientConfig::builder()
+                        .with_root_certificates(root_cert_store)
+                        .with_no_client_auth(),
+                );
+                let connector = tokio_rustls::TlsConnector::from(config);
+                let domain = rustls::pki_types::ServerName::try_from(host.to_string())
+                    .map_err(|_| WsError::invalid_url(self.config.url.clone()))?;
+                let tls_stream = connector
+                    .connect(domain, proxy_stream)
+                    .await
+                    .map_err(|e| WsError::connection_failed(self.config.url.clone(), e))?;
+                let (ws_stream, _) = client_async(&self.config.url, tls_stream)
+                    .await
+                    .map_err(|e| WsError::connection_failed(self.config.url.clone(), e))?;
+                self.initialize_stream(ws_stream).await
+            } else {
+                let (ws_stream, _) = client_async(&self.config.url, proxy_stream)
+                    .await
+                    .map_err(|e| WsError::connection_failed(self.config.url.clone(), e))?;
+                self.initialize_stream(ws_stream).await
+            }
         } else {
             let (ws_stream, _) =
                 tokio::time::timeout(connect_timeout, connect_async(&self.config.url))
