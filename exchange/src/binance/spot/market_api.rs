@@ -1,0 +1,273 @@
+use super::super::errors::*;
+use super::super::utils::*;
+use super::models::market::*;
+use super::parser::*;
+use super::requests::market::*;
+use super::responses::market::*;
+use log::error;
+use log::info;
+use rate_limiter::RateLimiter;
+use std::sync::Arc;
+
+pub struct MarketApi {
+    client: reqwest::Client,
+    base_url: String,
+    rate_limiters: Option<Arc<Vec<RateLimiter>>>,
+}
+
+impl MarketApi {
+    pub fn new(base_url: String, rate_limiters: Option<Arc<Vec<RateLimiter>>>) -> Self {
+        MarketApi {
+            client: reqwest::Client::new(),
+            base_url,
+            rate_limiters: rate_limiters,
+        }
+    }
+
+    pub async fn get_klines(&self, req: GetKlinesRequest) -> Result<GetKlinesResponse> {
+        let mut start_time = req.start_time.unwrap_or(0);
+        let end_time = req.end_time.unwrap_or(0);
+        let batch_size = req.limit.unwrap_or(1000) as u32;
+
+        if start_time > 0 && start_time >= end_time {
+            return Err(BinanceError::ParametersInvalid {
+                message: format!(
+                    "start_time: {} must be less than end_time: {}",
+                    start_time, end_time
+                ),
+            });
+        }
+
+        let mut klines = Vec::<KlineData>::new();
+        loop {
+            info!(
+                "get kline with parameters start_time: {}, end_time: {}, limit: {}",
+                start_time, end_time, batch_size
+            );
+            let mut params = vec![
+                ("symbol", req.symbol.clone()),
+                ("interval", req.interval.as_str().to_string()),
+                ("limit", batch_size.to_string()),
+            ];
+            if start_time > 0 {
+                params.push(("startTime", start_time.to_string()));
+                params.push(("endTime", end_time.to_string()));
+            }
+            sort_params(&mut params);
+
+            if let Some(rate_limiters) = &self.rate_limiters {
+                for rl in rate_limiters.iter() {
+                    _ = rl.wait(2).await;
+                }
+            }
+
+            let text = self
+                .client
+                .get(format!("{}/api/v3/klines", self.base_url))
+                .query(&params)
+                .send()
+                .await
+                .map_err(|e| {
+                    error!("Network error: {:?}", e);
+                    BinanceError::NetworkError {
+                        message: e.to_string(),
+                    }
+                })?
+                .text()
+                .await
+                .map_err(|e| {
+                    error!("Network error: {:?}", e);
+                    BinanceError::NetworkError {
+                        message: e.to_string(),
+                    }
+                })?;
+
+            let mut batch_klines = parse_klines(req.symbol.clone(), &text).map_err(|e| {
+                error!("Parse result: {:?} error: {:?}", text, e);
+                BinanceError::ParseResultError {
+                    message: e.to_string(),
+                }
+            })?;
+            batch_klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
+
+            if start_time > 0 {
+                let mut index = batch_klines.len();
+                for (i, kline) in batch_klines.iter().enumerate() {
+                    if kline.open_time > end_time {
+                        index = i;
+                        break;
+                    }
+                }
+                batch_klines.truncate(index);
+            }
+
+            klines.extend_from_slice(&batch_klines);
+
+            if batch_klines.len() < batch_size as usize {
+                break;
+            }
+            if start_time == 0 {
+                break;
+            }
+            start_time = batch_klines.last().unwrap().close_time + 1;
+        }
+
+        Ok(klines)
+    }
+
+    pub async fn get_agg_trades(&self, req: GetAggTradesRequest) -> Result<GetAggTradesResponse> {
+        let start_time = req.start_time.unwrap_or(0);
+        let end_time = req.end_time.unwrap_or(0);
+        let batch_size = req.limit.unwrap_or(1000) as u32;
+
+        if start_time > 0 && start_time >= end_time {
+            return Err(BinanceError::ParametersInvalid {
+                message: format!(
+                    "start_time: {} must be less than end_time: {}",
+                    start_time, end_time
+                ),
+            });
+        }
+
+        let mut agg_trades = Vec::<AggTrade>::new();
+        let mut from_id = req.from_id;
+
+        loop {
+            info!(
+                "get agg trades with parameters start_time: {}, end_time: {}, limit: {}, from_id: {:?}",
+                start_time, end_time, batch_size, from_id
+            );
+
+            let mut params = vec![
+                ("symbol", req.symbol.clone()),
+                ("limit", batch_size.to_string()),
+            ];
+
+            if let Some(id) = from_id {
+                params.push(("fromId", id.to_string()));
+            } else if start_time > 0 {
+                params.push(("startTime", start_time.to_string()));
+                params.push(("endTime", end_time.to_string()));
+            }
+
+            sort_params(&mut params);
+
+            if let Some(rate_limiters) = &self.rate_limiters {
+                for rl in rate_limiters.iter() {
+                    _ = rl.wait(4).await;
+                }
+            }
+
+            let text = self
+                .client
+                .get(format!("{}/api/v3/aggTrades", self.base_url))
+                .query(&params)
+                .send()
+                .await
+                .map_err(|e| {
+                    error!("Network error: {:?}", e);
+                    BinanceError::NetworkError {
+                        message: e.to_string(),
+                    }
+                })?
+                .text()
+                .await
+                .map_err(|e| {
+                    error!("Network error: {:?}", e);
+                    BinanceError::NetworkError {
+                        message: e.to_string(),
+                    }
+                })?;
+
+            let mut batch_trades = parse_agg_trades(req.symbol.clone(), &text).map_err(|e| {
+                error!("Parse result: {:?} error: {:?}", text, e);
+                BinanceError::ParseResultError {
+                    message: e.to_string(),
+                }
+            })?;
+
+            batch_trades.sort_by(|a, b| a.agg_trade_id.cmp(&b.agg_trade_id));
+
+            if start_time > 0 {
+                let mut index = batch_trades.len();
+                for (i, trade) in batch_trades.iter().enumerate() {
+                    if trade.timestamp > end_time {
+                        index = i;
+                        break;
+                    }
+                }
+                batch_trades.truncate(index);
+            }
+
+            agg_trades.extend_from_slice(&batch_trades);
+
+            if batch_trades.len() < batch_size as usize {
+                break;
+            }
+            if start_time == 0 {
+                break;
+            }
+
+            if let Some(last_trade) = batch_trades.last() {
+                from_id = Some(last_trade.agg_trade_id + 1);
+            } else {
+                break;
+            }
+        }
+
+        Ok(agg_trades)
+    }
+
+    pub async fn get_depth(&self, req: GetDepthRequest) -> Result<GetDepthResponse> {
+        let mut params = vec![("symbol", req.symbol.clone())];
+
+        if let Some(limit) = req.limit {
+            params.push(("limit", limit.to_string()));
+        }
+
+        sort_params(&mut params);
+
+        // 根据limit计算权重
+        let weight = match req.limit.unwrap_or(100) {
+            1..=100 => 5,
+            101..=500 => 25,
+            501..=1000 => 50,
+            1001..=5000 => 250,
+            _ => 250,
+        };
+
+        if let Some(rate_limiters) = &self.rate_limiters {
+            for rl in rate_limiters.iter() {
+                _ = rl.wait(weight).await;
+            }
+        }
+
+        let text = self
+            .client
+            .get(format!("{}/api/v3/depth", self.base_url))
+            .query(&params)
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Network error: {:?}", e);
+                BinanceError::NetworkError {
+                    message: e.to_string(),
+                }
+            })?
+            .text()
+            .await
+            .map_err(|e| {
+                error!("Network error: {:?}", e);
+                BinanceError::NetworkError {
+                    message: e.to_string(),
+                }
+            })?;
+
+        parse_depth(req.symbol.clone(), &text).map_err(|e| {
+            error!("Parse result: {:?} error: {:?}", text, e);
+            BinanceError::ParseResultError {
+                message: e.to_string(),
+            }
+        })
+    }
+}

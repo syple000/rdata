@@ -2,11 +2,12 @@ pub mod models;
 pub mod requests;
 pub mod responses;
 
-pub mod market_api_trait;
-pub mod trade_api_trait;
-
-mod market;
+mod market_api;
 #[cfg(test)]
-mod market_test;
+mod market_api_test;
+
+mod market_stream;
+#[cfg(test)]
+mod market_stream_test;
 
 mod parser;

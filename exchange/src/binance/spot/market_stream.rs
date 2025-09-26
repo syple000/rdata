@@ -1,9 +1,6 @@
 use super::super::errors::*;
-use super::super::utils::*;
 use super::models::market::*;
 use super::parser::*;
-use super::requests::market::*;
-use super::responses::market::*;
 use log::error;
 use log::info;
 use rand::distr::Alphanumeric;
@@ -17,113 +14,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use ws::RecvMsg;
 use ws::SendMsg;
-
-pub struct Market {
-    client: reqwest::Client,
-    base_url: String,
-    rate_limiters: Option<Arc<Vec<RateLimiter>>>,
-}
-
-impl Market {
-    pub fn new(base_url: String, rate_limiters: Option<Arc<Vec<RateLimiter>>>) -> Self {
-        Market {
-            client: reqwest::Client::new(),
-            base_url,
-            rate_limiters: rate_limiters,
-        }
-    }
-
-    pub async fn get_klines(&self, req: GetKlinesRequest) -> Result<GetKlinesResponse> {
-        let mut start_time = req.start_time.unwrap_or(0);
-        let end_time = req.end_time.unwrap_or(0);
-        let batch_size = req.limit.unwrap_or(1000) as u32;
-
-        if start_time > 0 && start_time >= end_time {
-            return Err(BinanceError::ParametersInvalid {
-                message: format!(
-                    "start_time: {} must be less than end_time: {}",
-                    start_time, end_time
-                ),
-            });
-        }
-
-        let mut klines = Vec::<KlineData>::new();
-        loop {
-            info!(
-                "get kline with parameters start_time: {}, end_time: {}, limit: {}",
-                start_time, end_time, batch_size
-            );
-            let mut params = vec![
-                ("symbol", req.symbol.clone()),
-                ("interval", req.interval.as_str().to_string()),
-                ("limit", batch_size.to_string()),
-            ];
-            if start_time > 0 {
-                params.push(("startTime", start_time.to_string()));
-                params.push(("endTime", end_time.to_string()));
-            }
-            sort_params(&mut params);
-
-            if let Some(rate_limiters) = &self.rate_limiters {
-                for rl in rate_limiters.iter() {
-                    _ = rl.wait(2).await;
-                }
-            }
-
-            let text = self
-                .client
-                .get(format!("{}/api/v3/klines", self.base_url))
-                .query(&params)
-                .send()
-                .await
-                .map_err(|e| {
-                    error!("Network error: {:?}", e);
-                    BinanceError::NetworkError {
-                        message: e.to_string(),
-                    }
-                })?
-                .text()
-                .await
-                .map_err(|e| {
-                    error!("Network error: {:?}", e);
-                    BinanceError::NetworkError {
-                        message: e.to_string(),
-                    }
-                })?;
-
-            let mut batch_klines = parse_klines(req.symbol.clone(), &text).map_err(|e| {
-                error!("Parse result: {:?} error: {:?}", text, e);
-                BinanceError::ParseResultError {
-                    message: e.to_string(),
-                }
-            })?;
-            batch_klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
-
-            if start_time > 0 {
-                let mut index = batch_klines.len();
-                for (i, kline) in batch_klines.iter().enumerate() {
-                    if kline.open_time > end_time {
-                        index = i;
-                        break;
-                    }
-                }
-                batch_klines.truncate(index);
-            }
-
-            klines.extend_from_slice(&batch_klines);
-
-            if batch_klines.len() < batch_size as usize {
-                break;
-            }
-            if start_time == 0 {
-                break;
-            }
-            start_time = batch_klines.last().unwrap().close_time + 1;
-        }
-
-        Ok(GetKlinesResponse { klines: klines })
-    }
-}
 
 #[derive(Clone)]
 enum MarketStreamType {
@@ -139,6 +29,7 @@ struct SubDetail {
 
 pub struct MarketStream {
     url: String,
+    proxy_url: Option<String>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
 
     // 订阅 & 回调
@@ -151,6 +42,14 @@ pub struct MarketStream {
                 + 'static,
         >,
     >,
+    agg_trade_cb: Option<
+        Arc<
+            dyn Fn(AggTrade) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
+                + Send
+                + Sync
+                + 'static,
+        >,
+    >,
 
     // ws客户端
     client: Mutex<Option<ws::Client>>,
@@ -158,12 +57,18 @@ pub struct MarketStream {
 
 impl MarketStream {
     // 订阅/注册回调等请在初始化前完成
-    pub fn new(url: String, rate_limiters: Option<Arc<Vec<RateLimiter>>>) -> Self {
+    pub fn new(
+        url: String,
+        proxy_url: Option<String>,
+        rate_limiters: Option<Arc<Vec<RateLimiter>>>,
+    ) -> Self {
         MarketStream {
             url,
+            proxy_url,
             rate_limiters,
             sub_details: HashMap::new(),
             update_depth_cb: None,
+            agg_trade_cb: None,
             client: Mutex::new(None),
         }
     }
@@ -173,6 +78,16 @@ impl MarketStream {
             format!("{}@depth@100ms", symbol.to_lowercase()),
             SubDetail {
                 stream_type: MarketStreamType::UpdateDepth,
+                symbol: symbol.to_string(),
+            },
+        );
+    }
+
+    pub fn subscribe_agg_trade(&mut self, symbol: &str) {
+        self.sub_details.insert(
+            format!("{}@aggTrade", symbol.to_lowercase()),
+            SubDetail {
+                stream_type: MarketStreamType::AggTrade,
                 symbol: symbol.to_string(),
             },
         );
@@ -188,19 +103,34 @@ impl MarketStream {
         self.update_depth_cb = Some(Arc::new(cb));
     }
 
+    pub fn register_agg_trade_callback<F>(&mut self, cb: F)
+    where
+        F: Fn(AggTrade) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.agg_trade_cb = Some(Arc::new(cb));
+    }
+
     // 完成ws连接并订阅
     pub async fn init(&self) -> Result<()> {
         let sub_details = Arc::new(self.sub_details.clone());
         let update_depth_cb = self.update_depth_cb.clone();
+        let agg_trade_cb = self.agg_trade_cb.clone();
         let mut config = ws::Config::default(
             self.url.clone(),
             Arc::new(Self::calc_recv_msg_id),
             Arc::new(move |msg: RecvMsg| {
                 let sub_details = sub_details.clone();
                 let update_depth_cb = update_depth_cb.clone();
-                Box::pin(async move { Self::handle(msg, sub_details, update_depth_cb).await })
+                let agg_trade_cb = agg_trade_cb.clone();
+                Box::pin(async move {
+                    Self::handle(msg, sub_details, update_depth_cb, agg_trade_cb).await
+                })
             }),
         );
+        config.proxy_url = self.proxy_url.clone();
         config.rate_limiters = self.rate_limiters.clone();
 
         let ws_client = ws::Client::new(config).map_err(|e| {
@@ -278,6 +208,14 @@ impl MarketStream {
                     + 'static,
             >,
         >,
+        agg_trade_cb: Option<
+            Arc<
+                dyn Fn(AggTrade) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
     ) -> ws::Result<()> {
         let text = match msg {
             RecvMsg::Text { msg_id: _, content } => content,
@@ -327,7 +265,18 @@ impl MarketStream {
                         })?;
                 }
             }
-            _ => {}
+            MarketStreamType::AggTrade => {
+                let agg_trade = parse_agg_trade_stream(stream_msg.data.get()).map_err(|e| {
+                    ws::WsError::HandleError {
+                        message: e.to_string(),
+                    }
+                })?;
+                if let Some(cb) = agg_trade_cb {
+                    cb(agg_trade).await.map_err(|e| ws::WsError::HandleError {
+                        message: e.to_string(),
+                    })?;
+                }
+            }
         }
         return Ok(());
     }

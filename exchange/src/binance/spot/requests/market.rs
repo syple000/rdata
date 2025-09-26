@@ -92,3 +92,16 @@ pub struct GetKlinesRequest {
 
     pub limit: Option<u32>,
 }
+
+pub struct GetAggTradesRequest {
+    pub symbol: String,
+    pub from_id: Option<u128>,
+    pub start_time: Option<u128>,
+    pub end_time: Option<u128>,
+    pub limit: Option<u32>,
+}
+
+pub struct GetDepthRequest {
+    pub symbol: String,
+    pub limit: Option<u32>,
+}
