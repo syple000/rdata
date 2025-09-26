@@ -193,6 +193,7 @@ async fn test_basic_connect_and_disconnect() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -229,6 +230,7 @@ async fn test_send_message() {
     let (handler, received_messages) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -286,6 +288,7 @@ async fn test_synchronous_call() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -341,6 +344,7 @@ async fn test_call_timeout() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -386,6 +390,7 @@ async fn test_call_without_msg_id() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -427,6 +432,7 @@ async fn test_rate_limiter() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: Some(Arc::new(rate_limiters)),
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -500,6 +506,7 @@ async fn test_ping_pong_handling() {
     let (handler, _received_messages) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -523,6 +530,7 @@ async fn test_connection_error() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: "ws://127.0.0.1:9999".to_string(), // 不存在的服务器
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -545,6 +553,7 @@ async fn test_send_before_connect() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: "ws://127.0.0.1:8088".to_string(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -572,6 +581,7 @@ async fn test_call_before_connect() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: "ws://127.0.0.1:8089".to_string(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),
@@ -605,6 +615,7 @@ async fn test_multiple_concurrent_calls() {
     let (handler, _) = create_test_handler();
     let config = Config {
         url: server.get_url(),
+        proxy_url: None,
         send_buf_size: 100,
         rate_limiters: None,
         calc_recv_msg_id: Arc::new(calc_test_msg_id),

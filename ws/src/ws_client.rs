@@ -8,14 +8,14 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio::{
-    net::TcpStream,
-    sync::mpsc::{channel, Receiver, Sender},
-};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_socks::tcp::Socks5Stream;
+use tokio_tungstenite::{client_async, connect_async, tungstenite::Message, WebSocketStream};
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 #[derive(Debug, Clone)]
 pub enum SendMsg {
@@ -167,6 +167,7 @@ impl RecvMsg {
 
 pub struct Config {
     pub url: String,
+    pub proxy_url: Option<String>,
     pub send_buf_size: usize,
     pub rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     pub calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
@@ -188,6 +189,7 @@ impl Config {
     ) -> Self {
         Self {
             url,
+            proxy_url: None,
             send_buf_size: 1024,
             rate_limiters: None,
             calc_recv_msg_id,
@@ -240,25 +242,53 @@ impl Client {
     }
 
     pub async fn connect(&self) -> Result<()> {
-        let connect_timeout = self.config.connect_timeout.clone();
-        let result = tokio::time::timeout(connect_timeout, connect_async(&self.config.url)).await;
-        let (ws_stream, _) = match result {
-            Ok(Ok((stream, resp))) => {
-                info!("Connected to {}, response: {:?}", &self.config.url, resp);
-                (stream, resp)
-            }
-            Ok(Err(e)) => {
-                error!("WebSocket connect error: {}", e);
-                return Err(WsError::connection_failed(self.config.url.clone(), e));
-            }
-            Err(_) => {
-                error!("WebSocket connect timeout after {:?}", connect_timeout);
-                return Err(WsError::connection_timeout(
-                    self.config.url.clone(),
-                    connect_timeout,
-                ));
-            }
-        };
+        let connect_timeout = self.config.connect_timeout;
+        if let Some(proxy_url_str) = self.config.proxy_url.as_ref() {
+            let proxy_url = Url::parse(proxy_url_str)
+                .map_err(|_| WsError::invalid_proxy_url(proxy_url_str.clone()))?;
+            let proxy_host = proxy_url
+                .host_str()
+                .ok_or_else(|| WsError::invalid_proxy_url(proxy_url_str.clone()))?;
+            let proxy_port = proxy_url
+                .port()
+                .ok_or_else(|| WsError::invalid_proxy_url(proxy_url_str.clone()))?;
+
+            let url = Url::parse(&self.config.url)
+                .map_err(|_| WsError::invalid_url(self.config.url.clone()))?;
+            let host = url
+                .host_str()
+                .ok_or_else(|| WsError::invalid_url(self.config.url.clone()))?;
+            let port = url
+                .port()
+                .unwrap_or_else(|| if url.scheme() == "wss" { 443 } else { 80 });
+
+            let proxy_stream = tokio::time::timeout(
+                connect_timeout,
+                Socks5Stream::connect((proxy_host, proxy_port), (host, port)),
+            )
+            .await
+            .map_err(|_| WsError::connection_timeout(proxy_url_str.clone(), connect_timeout))?
+            .map_err(|e| WsError::connection_failed(proxy_url_str.clone(), e))?;
+            let (ws_stream, _) = client_async(&self.config.url, proxy_stream)
+                .await
+                .map_err(|e| WsError::connection_failed(self.config.url.clone(), e))?;
+            self.initialize_stream(ws_stream).await
+        } else {
+            let (ws_stream, _) =
+                tokio::time::timeout(connect_timeout, connect_async(&self.config.url))
+                    .await
+                    .map_err(|_| {
+                        WsError::connection_timeout(self.config.url.clone(), connect_timeout)
+                    })?
+                    .map_err(|e| WsError::connection_failed(self.config.url.clone(), e))?;
+            self.initialize_stream(ws_stream).await
+        }
+    }
+
+    async fn initialize_stream<S>(&self, ws_stream: WebSocketStream<S>) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let (sender, receiver) = ws_stream.split();
 
         let shutdown_token = CancellationToken::new();
@@ -403,8 +433,8 @@ impl Client {
         }
     }
 
-    async fn recv_loop(
-        mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    async fn recv_loop<S>(
+        mut receiver: SplitStream<WebSocketStream<S>>,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
         sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
         handle: Arc<
@@ -412,7 +442,10 @@ impl Client {
         >,
         send_tx: Sender<SendMsg>,
         shutdown_token: CancellationToken,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         defer!(
             shutdown_token.cancel();
         );
@@ -484,12 +517,15 @@ impl Client {
         }
     }
 
-    async fn send_loop(
-        mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    async fn send_loop<S>(
+        mut sender: SplitSink<WebSocketStream<S>, Message>,
         mut send_rx: Receiver<SendMsg>,
         rate_limiters: Option<Arc<Vec<RateLimiter>>>,
         shutdown_token: CancellationToken,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         defer!(
             shutdown_token.cancel();
         );

@@ -115,6 +115,10 @@ impl WsError {
         }
     }
 
+    pub fn invalid_proxy_url(url: String) -> Self {
+        Self::config(format!("invalid proxy URL: {}", url))
+    }
+
     pub fn invalid_url(url: String) -> Self {
         Self::config(format!("invalid WebSocket URL: {}", url))
     }
