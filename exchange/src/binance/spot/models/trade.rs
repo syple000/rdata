@@ -15,6 +15,8 @@ pub struct Order {
     pub cummulative_quote_qty: Decimal,
     pub order_status: OrderStatus,
     pub time_in_force: TimeInForce,
+    pub stop_price: Decimal,
+    pub iceberg_qty: Decimal,
     pub create_time: u128,
     pub update_time: u128,
 }
@@ -65,13 +67,16 @@ pub struct ExecutionReport {
     pub order_price: Decimal,
     pub last_executed_qty: Decimal,
     pub last_executed_price: Decimal,
-    pub cumulative_filled_price: Decimal,
+    pub cumulative_filled_qty: Decimal,
+    pub cumulative_quote_qty: Decimal,
     pub commission: Decimal,
     pub commission_asset: String,
     pub transaction_time: u128,
     pub create_time: u128,
     pub trade_id: u128,
-    pub is_trade_maker: bool,
+    pub is_maker: bool,
+    pub stop_price: Decimal,
+    pub iceberg_qty: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

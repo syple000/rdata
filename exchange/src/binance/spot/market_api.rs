@@ -53,34 +53,10 @@ impl MarketApi {
                 params.push(("startTime", start_time.to_string()));
                 params.push(("endTime", end_time.to_string()));
             }
-            sort_params(&mut params);
-
-            if let Some(rate_limiters) = &self.rate_limiters {
-                for rl in rate_limiters.iter() {
-                    _ = rl.wait(2).await;
-                }
-            }
 
             let text = self
-                .client
-                .get(format!("{}/api/v3/klines", self.base_url))
-                .query(&params)
-                .send()
-                .await
-                .map_err(|e| {
-                    error!("Network error: {:?}", e);
-                    BinanceError::NetworkError {
-                        message: e.to_string(),
-                    }
-                })?
-                .text()
-                .await
-                .map_err(|e| {
-                    error!("Network error: {:?}", e);
-                    BinanceError::NetworkError {
-                        message: e.to_string(),
-                    }
-                })?;
+                .send_request(reqwest::Method::GET, "/api/v3/klines", params, 2)
+                .await?;
 
             let mut batch_klines = parse_klines(req.symbol.clone(), &text).map_err(|e| {
                 error!("Parse result: {:?} error: {:?}", text, e);
@@ -150,34 +126,9 @@ impl MarketApi {
                 params.push(("endTime", end_time.to_string()));
             }
 
-            sort_params(&mut params);
-
-            if let Some(rate_limiters) = &self.rate_limiters {
-                for rl in rate_limiters.iter() {
-                    _ = rl.wait(4).await;
-                }
-            }
-
             let text = self
-                .client
-                .get(format!("{}/api/v3/aggTrades", self.base_url))
-                .query(&params)
-                .send()
-                .await
-                .map_err(|e| {
-                    error!("Network error: {:?}", e);
-                    BinanceError::NetworkError {
-                        message: e.to_string(),
-                    }
-                })?
-                .text()
-                .await
-                .map_err(|e| {
-                    error!("Network error: {:?}", e);
-                    BinanceError::NetworkError {
-                        message: e.to_string(),
-                    }
-                })?;
+                .send_request(reqwest::Method::GET, "/api/v3/aggTrades", params, 4)
+                .await?;
 
             let mut batch_trades = parse_agg_trades(req.symbol.clone(), &text).map_err(|e| {
                 error!("Parse result: {:?} error: {:?}", text, e);
@@ -225,8 +176,6 @@ impl MarketApi {
             params.push(("limit", limit.to_string()));
         }
 
-        sort_params(&mut params);
-
         // 根据limit计算权重
         let weight = match req.limit.unwrap_or(100) {
             1..=100 => 5,
@@ -236,18 +185,63 @@ impl MarketApi {
             _ => 250,
         };
 
+        let text = self
+            .send_request(reqwest::Method::GET, "/api/v3/depth", params, weight)
+            .await?;
+
+        parse_depth(req.symbol.clone(), &text).map_err(|e| {
+            error!("Parse result: {:?} error: {:?}", text, e);
+            BinanceError::ParseResultError {
+                message: e.to_string(),
+            }
+        })
+    }
+
+    async fn send_request(
+        &self,
+        method: reqwest::Method,
+        endpoint: &str,
+        mut params: Vec<(&str, String)>,
+        weight: u64,
+    ) -> Result<String> {
+        sort_params(&mut params);
+
         if let Some(rate_limiters) = &self.rate_limiters {
             for rl in rate_limiters.iter() {
                 _ = rl.wait(weight).await;
             }
         }
 
-        let text = self
-            .client
-            .get(format!("{}/api/v3/depth", self.base_url))
-            .query(&params)
-            .send()
-            .await
+        let resp = match method {
+            reqwest::Method::GET => {
+                self.client
+                    .get(format!("{}{}", self.base_url, endpoint))
+                    .query(&params)
+                    .send()
+                    .await
+            }
+            reqwest::Method::POST => {
+                self.client
+                    .post(format!("{}{}", self.base_url, endpoint))
+                    .form(&params)
+                    .send()
+                    .await
+            }
+            reqwest::Method::DELETE => {
+                self.client
+                    .delete(format!("{}{}", self.base_url, endpoint))
+                    .query(&params)
+                    .send()
+                    .await
+            }
+            _ => {
+                return Err(BinanceError::ParametersInvalid {
+                    message: format!("unsupported http method: {}", method),
+                })
+            }
+        };
+
+        let text = resp
             .map_err(|e| {
                 error!("Network error: {:?}", e);
                 BinanceError::NetworkError {
@@ -263,11 +257,6 @@ impl MarketApi {
                 }
             })?;
 
-        parse_depth(req.symbol.clone(), &text).map_err(|e| {
-            error!("Parse result: {:?} error: {:?}", text, e);
-            BinanceError::ParseResultError {
-                message: e.to_string(),
-            }
-        })
+        Ok(text)
     }
 }
