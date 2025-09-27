@@ -11,7 +11,7 @@ use std::char;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use ws::RecvMsg;
 use ws::SendMsg;
 
@@ -27,6 +27,7 @@ struct SubDetail {
     symbol: String,
 }
 
+type Fut = Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>;
 pub struct MarketStream {
     url: String,
     proxy_url: Option<String>,
@@ -34,25 +35,11 @@ pub struct MarketStream {
 
     // 订阅 & 回调
     sub_details: HashMap<String, SubDetail>,
-    update_depth_cb: Option<
-        Arc<
-            dyn Fn(DepthUpdate) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    >,
-    agg_trade_cb: Option<
-        Arc<
-            dyn Fn(AggTrade) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    >,
+    update_depth_cb: Option<Arc<dyn Fn(DepthUpdate) -> Fut + Send + Sync + 'static>>,
+    agg_trade_cb: Option<Arc<dyn Fn(AggTrade) -> Fut + Send + Sync + 'static>>,
 
     // ws客户端
-    client: Mutex<Option<ws::Client>>,
+    client: Option<ws::Client>,
 }
 
 impl MarketStream {
@@ -69,7 +56,7 @@ impl MarketStream {
             sub_details: HashMap::new(),
             update_depth_cb: None,
             agg_trade_cb: None,
-            client: Mutex::new(None),
+            client: None,
         }
     }
 
@@ -114,7 +101,7 @@ impl MarketStream {
     }
 
     // 完成ws连接并订阅
-    pub async fn init(&self) -> Result<()> {
+    pub async fn init(&mut self) -> Result<CancellationToken> {
         let sub_details = Arc::new(self.sub_details.clone());
         let update_depth_cb = self.update_depth_cb.clone();
         let agg_trade_cb = self.agg_trade_cb.clone();
@@ -170,10 +157,10 @@ impl MarketStream {
             });
         }
 
-        let mut client_guard = self.client.lock().await;
-        *client_guard = Some(ws_client);
+        let shutdown_token = ws_client.get_shutdown_token().await.unwrap();
+        self.client = Some(ws_client);
 
-        Ok(())
+        Ok(shutdown_token)
     }
 
     fn rand_id() -> String {
