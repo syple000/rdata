@@ -8,7 +8,7 @@ use ws::{RecvMsg, SendMsg};
 
 use crate::binance::{
     errors::{BinanceError, Result},
-    spot::models::{AccountUpdateData, ExecutionReport},
+    spot::models::{ExecutionReport, OutboundAccountPosition},
     utils::{encode_params, hmac_sha256, sort_params},
 };
 
@@ -21,7 +21,8 @@ pub struct TradeStream {
     secret_key: String,
 
     execution_report_cb: Option<Arc<dyn Fn(ExecutionReport) -> Fut + Send + Sync + 'static>>,
-    account_update_cb: Option<Arc<dyn Fn(AccountUpdateData) -> Fut + Send + Sync + 'static>>,
+    outbound_account_position_cb:
+        Option<Arc<dyn Fn(OutboundAccountPosition) -> Fut + Send + Sync + 'static>>,
 
     client: Option<ws::Client>,
 }
@@ -41,44 +42,38 @@ impl TradeStream {
             api_key,
             secret_key,
             execution_report_cb: None,
-            account_update_cb: None,
+            outbound_account_position_cb: None,
             client: None,
         }
     }
 
     pub fn register_execution_report_callback<F>(&mut self, cb: F)
     where
-        F: Fn(ExecutionReport) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(ExecutionReport) -> Fut + Send + Sync + 'static,
     {
         self.execution_report_cb = Some(Arc::new(cb));
     }
 
     pub fn register_outbound_account_position_callback<F>(&mut self, cb: F)
     where
-        F: Fn(AccountUpdateData) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(OutboundAccountPosition) -> Fut + Send + Sync + 'static,
     {
-        self.account_update_cb = Some(Arc::new(cb));
+        self.outbound_account_position_cb = Some(Arc::new(cb));
     }
 
     // 完成ws连接并订阅
     pub async fn init(&mut self) -> Result<CancellationToken> {
         let execution_report_cb = self.execution_report_cb.clone();
-        let account_update_cb = self.account_update_cb.clone();
+        let outbound_account_position_cb = self.outbound_account_position_cb.clone();
         let mut config = ws::Config::default(
             self.url.clone(),
             Arc::new(Self::calc_recv_msg_id),
             Arc::new(move |msg: RecvMsg| {
                 let execution_report_cb = execution_report_cb.clone();
-                let account_update_cb = account_update_cb.clone();
-                Box::pin(
-                    async move { Self::handle(msg, execution_report_cb, account_update_cb).await },
-                )
+                let outbound_account_position_cb = outbound_account_position_cb.clone();
+                Box::pin(async move {
+                    Self::handle(msg, execution_report_cb, outbound_account_position_cb).await
+                })
             }),
         );
         config.proxy_url = self.proxy_url.clone();
@@ -181,7 +176,9 @@ impl TradeStream {
     async fn handle(
         msg: RecvMsg,
         _execution_report_cb: Option<Arc<dyn Fn(ExecutionReport) -> Fut + Send + Sync + 'static>>,
-        _account_update_cb: Option<Arc<dyn Fn(AccountUpdateData) -> Fut + Send + Sync + 'static>>,
+        _account_update_cb: Option<
+            Arc<dyn Fn(OutboundAccountPosition) -> Fut + Send + Sync + 'static>,
+        >,
     ) -> ws::Result<()> {
         let text = match msg {
             RecvMsg::Text { msg_id: _, content } => content,

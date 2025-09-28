@@ -58,6 +58,7 @@ pub struct ExecutionReport {
     pub symbol: String,
     pub order_id: u128,
     pub client_order_id: String,
+    pub original_client_order_id: String,
     pub order_side: Side,
     pub time_in_force: TimeInForce,
     pub order_type: OrderType,
@@ -80,7 +81,7 @@ pub struct ExecutionReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountUpdateData {
+pub struct OutboundAccountPosition {
     pub balances: Vec<Balance>,
     pub transaction_time: u128,
     pub update_time: u128,

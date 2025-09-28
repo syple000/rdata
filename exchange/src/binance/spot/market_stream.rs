@@ -82,20 +82,14 @@ impl MarketStream {
 
     pub fn register_depth_update_callback<F>(&mut self, cb: F)
     where
-        F: Fn(DepthUpdate) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(DepthUpdate) -> Fut + Send + Sync + 'static,
     {
         self.update_depth_cb = Some(Arc::new(cb));
     }
 
     pub fn register_agg_trade_callback<F>(&mut self, cb: F)
     where
-        F: Fn(AggTrade) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(AggTrade) -> Fut + Send + Sync + 'static,
     {
         self.agg_trade_cb = Some(Arc::new(cb));
     }
