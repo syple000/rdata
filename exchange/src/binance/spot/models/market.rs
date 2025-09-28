@@ -5,15 +5,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlineData {
     pub symbol: String,
-    pub open_time: u128,
-    pub close_time: u128,
+    pub open_time: u64,
+    pub close_time: u64,
     pub open: Decimal,
     pub high: Decimal,
     pub low: Decimal,
     pub close: Decimal,
     pub volume: Decimal,
     pub quote_volume: Decimal,
-    pub trade_count: u128,
+    pub trade_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ pub struct PriceLevel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepthData {
     pub symbol: String,
-    pub last_update_id: u128,
+    pub last_update_id: u64,
     pub bids: Vec<PriceLevel>,
     pub asks: Vec<PriceLevel>,
 }
@@ -33,22 +33,22 @@ pub struct DepthData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepthUpdate {
     pub symbol: String,
-    pub first_update_id: u128,
-    pub last_update_id: u128,
+    pub first_update_id: u64,
+    pub last_update_id: u64,
     pub bids: Vec<PriceLevel>,
     pub asks: Vec<PriceLevel>,
-    pub timestamp: u128,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggTrade {
     pub symbol: String,
-    pub agg_trade_id: u128,
+    pub agg_trade_id: u64,
     pub price: Decimal,
     pub quantity: Decimal,
-    pub first_trade_id: u128,
-    pub last_trade_id: u128,
-    pub timestamp: u128,
+    pub first_trade_id: u64,
+    pub last_trade_id: u64,
+    pub timestamp: u64,
     pub is_buyer_maker: bool,
 }
 
@@ -101,6 +101,6 @@ pub struct Symbol {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExchangeInfo {
     pub timezone: String,
-    pub server_time: u128,
+    pub server_time: u64,
     pub symbols: Vec<Symbol>,
 }

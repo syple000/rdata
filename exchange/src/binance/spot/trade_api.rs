@@ -1,5 +1,5 @@
 use crate::binance::{
-    errors::Result,
+    errors::{BinanceError, Result},
     spot::{
         models::{OrderType, TimeInForce},
         parser::{parse_get_order, parse_place_order},
@@ -8,7 +8,7 @@ use crate::binance::{
     },
     utils::{encode_params, hmac_sha256, sort_params},
 };
-use log::info;
+use log::{error, info};
 use rate_limiter::RateLimiter;
 use std::sync::Arc;
 
@@ -154,7 +154,7 @@ impl TradeApi {
 
         parse_place_order(req, &text).map_err(|e| {
             crate::binance::errors::BinanceError::ParseResultError {
-                message: e.to_string(),
+                message: format!("{}, {}", text, e.to_string()),
             }
         })
     }
@@ -305,15 +305,25 @@ impl TradeApi {
             }
         };
 
-        let text = resp
-            .map_err(|e| crate::binance::errors::BinanceError::NetworkError {
-                message: e.to_string(),
-            })?
-            .text()
-            .await
-            .map_err(|e| crate::binance::errors::BinanceError::NetworkError {
-                message: e.to_string(),
-            })?;
+        let resp = resp.map_err(|e| crate::binance::errors::BinanceError::NetworkError {
+            message: e.to_string(),
+        })?;
+
+        if resp.status() != reqwest::StatusCode::OK {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            error!("Response error: status: {}, text: {}", status, text);
+            return Err(BinanceError::ParseResultError {
+                message: format!("status: {}, text: {}", status, text),
+            });
+        }
+
+        let text =
+            resp.text()
+                .await
+                .map_err(|e| crate::binance::errors::BinanceError::NetworkError {
+                    message: e.to_string(),
+                })?;
 
         Ok(text)
     }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
-    pub order_id: u128,
+    pub order_id: u64,
     pub client_order_id: String,
     pub symbol: String,
     pub order_side: Side,
@@ -17,14 +17,14 @@ pub struct Order {
     pub time_in_force: TimeInForce,
     pub stop_price: Decimal,
     pub iceberg_qty: Decimal,
-    pub create_time: u128,
-    pub update_time: u128,
+    pub create_time: u64,
+    pub update_time: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trade {
-    pub trade_id: u128,
-    pub order_id: u128,
+    pub trade_id: u64,
+    pub order_id: u64,
     pub symbol: String,
     pub order_side: Side,
     pub trade_price: Decimal,
@@ -32,7 +32,7 @@ pub struct Trade {
     pub commission: Decimal,
     pub commission_asset: String,
     pub is_maker: bool,
-    pub timestamp: u128,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,13 +50,13 @@ pub struct Account {
     pub seller_commission_rate: Decimal,
     pub balances: Vec<Balance>,
     pub can_trade: bool,
-    pub update_time: u128,
+    pub update_time: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionReport {
     pub symbol: String,
-    pub order_id: u128,
+    pub order_id: u64,
     pub client_order_id: String,
     pub original_client_order_id: String,
     pub order_side: Side,
@@ -72,9 +72,9 @@ pub struct ExecutionReport {
     pub cumulative_quote_qty: Decimal,
     pub commission: Decimal,
     pub commission_asset: String,
-    pub transaction_time: u128,
-    pub create_time: u128,
-    pub trade_id: u128,
+    pub transaction_time: u64,
+    pub create_time: u64,
+    pub trade_id: u64,
     pub is_maker: bool,
     pub stop_price: Decimal,
     pub iceberg_qty: Decimal,
@@ -83,6 +83,6 @@ pub struct ExecutionReport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundAccountPosition {
     pub balances: Vec<Balance>,
-    pub transaction_time: u128,
-    pub update_time: u128,
+    pub transaction_time: u64,
+    pub update_time: u64,
 }

@@ -1,11 +1,12 @@
 use super::super::consts::*;
 use super::trade_stream::TradeStream;
 use crate::binance::spot::models::{OrderType, Side, TimeInForce};
-use crate::binance::spot::requests::PlaceOrderRequest;
+use crate::binance::spot::requests::{CancelOrderRequest, PlaceOrderRequest};
 use crate::binance::spot::trade_api::TradeApi;
 use env_logger::Env;
 use rate_limiter::RateLimiter;
 use rust_decimal::Decimal;
+use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +16,17 @@ use tokio::sync::Mutex;
 async fn test_trade_stream_basic_functionality() {
     let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .is_test(true)
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] {}:{} {}",
+                buf.timestamp(),                    // 时间戳
+                record.level(),                     // 日志级别
+                record.file().unwrap_or("unknown"), // 文件名
+                record.line().unwrap_or(0),         // 行号
+                record.args()                       // 原始日志内容
+            )
+        })
         .try_init();
 
     // 创建 TradeStream 实例
@@ -58,10 +70,10 @@ async fn test_trade_stream_basic_functionality() {
     let req = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
         side: Side::Buy,
-        r#type: OrderType::Limit,
-        time_in_force: Some(TimeInForce::Gtc),
-        quantity: Some(Decimal::from_str("0.0001").unwrap()),
-        price: Some(Decimal::from_str("125000.00").unwrap()),
+        r#type: OrderType::Market,
+        time_in_force: None,
+        quantity: Some(Decimal::from_str("0.001").unwrap()),
+        price: None,
         new_client_order_id: Some(format!(
             "test_order_{}",
             time::get_current_milli_timestamp()
@@ -70,6 +82,30 @@ async fn test_trade_stream_basic_functionality() {
         iceberg_qty: None,
     };
     let _ = trade_api.place_order(req).await;
+    let req = PlaceOrderRequest {
+        symbol: "BTCUSDT".to_string(),
+        side: Side::Buy,
+        r#type: OrderType::Limit,
+        time_in_force: Some(TimeInForce::Gtc),
+        quantity: Some(Decimal::from_str("0.001").unwrap()),
+        price: Some(Decimal::from_str("50000").unwrap()),
+        new_client_order_id: Some(format!(
+            "test_order_{}",
+            time::get_current_milli_timestamp()
+        )),
+        stop_price: None,
+        iceberg_qty: None,
+    };
+    let resp = trade_api.place_order(req).await.unwrap();
+    let _ = trade_api
+        .cancel_order(CancelOrderRequest {
+            symbol: "BTCUSDT".to_string(),
+            order_id: Some(resp.order_id),
+            orig_client_order_id: None,
+            new_client_order_id: None,
+        })
+        .await
+        .unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
     shutdown_token.cancel();

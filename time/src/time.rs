@@ -5,7 +5,7 @@ pub fn get_current_nano_timestamp() -> u128 {
     now.duration_since(UNIX_EPOCH).unwrap().as_nanos()
 }
 
-pub fn get_current_milli_timestamp() -> u128 {
+pub fn get_current_milli_timestamp() -> u64 {
     let now = SystemTime::now();
-    now.duration_since(UNIX_EPOCH).unwrap().as_millis()
+    now.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }

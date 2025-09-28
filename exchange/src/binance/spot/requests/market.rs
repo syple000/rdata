@@ -61,7 +61,7 @@ impl KlineInterval {
         }
     }
 
-    pub fn to_millis(&self) -> u128 {
+    pub fn to_millis(&self) -> u64 {
         match self {
             KlineInterval::OneSecond => 1_000,
             KlineInterval::OneMinute => 60_000,
@@ -87,17 +87,17 @@ pub struct GetKlinesRequest {
     pub symbol: String,
     pub interval: KlineInterval,
 
-    pub start_time: Option<u128>,
-    pub end_time: Option<u128>,
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
 
     pub limit: Option<u32>,
 }
 
 pub struct GetAggTradesRequest {
     pub symbol: String,
-    pub from_id: Option<u128>,
-    pub start_time: Option<u128>,
-    pub end_time: Option<u128>,
+    pub from_id: Option<u64>,
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
     pub limit: Option<u32>,
 }
 

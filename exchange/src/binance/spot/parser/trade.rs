@@ -9,11 +9,11 @@ use serde::Deserialize;
 pub struct PlaceOrderRaw {
     symbol: String,
     #[serde(rename = "orderId")]
-    order_id: u128,
+    order_id: u64,
     #[serde(rename = "clientOrderId")]
     client_order_id: String,
     #[serde(rename = "transactTime")]
-    timestamp: u128,
+    timestamp: u64,
 }
 
 impl From<(PlaceOrderRequest, PlaceOrderRaw)> for Order {
@@ -63,7 +63,7 @@ pub fn parse_place_order(req: PlaceOrderRequest, data: &str) -> Result<Order, se
 pub struct GetOrderRaw {
     symbol: String,
     #[serde(rename = "orderId")]
-    order_id: u128,
+    order_id: u64,
     #[serde(rename = "clientOrderId")]
     client_order_id: String,
     price: Decimal,
@@ -84,9 +84,9 @@ pub struct GetOrderRaw {
     stop_price: Decimal,
     #[serde(rename = "icebergQty")]
     iceberg_qty: Decimal,
-    time: u128,
+    time: u64,
     #[serde(rename = "updateTime")]
-    update_time: u128,
+    update_time: u64,
 }
 
 impl From<GetOrderRaw> for Order {
@@ -132,16 +132,16 @@ pub enum AccountUpdateRaw {
     #[serde(rename = "outboundAccountPosition")]
     OutboundAccountPosition {
         #[serde(rename = "E")]
-        event_time: u128,
+        event_time: u64,
         #[serde(rename = "u")]
-        last_account_update: u128,
+        last_account_update: u64,
         #[serde(rename = "B")]
         balances: Vec<Balance>,
     },
     #[serde(rename = "executionReport")]
     ExecutionReport {
         #[serde(rename = "E")]
-        event_time: u128,
+        event_time: u64,
         #[serde(rename = "s")]
         symbol: String,
         #[serde(rename = "c")]
@@ -169,7 +169,7 @@ pub enum AccountUpdateRaw {
         #[serde(rename = "r")]
         order_reject_reason: String,
         #[serde(rename = "i")]
-        order_id: u128,
+        order_id: u64,
         #[serde(rename = "l")]
         last_executed_qty: Decimal,
         #[serde(rename = "z")]
@@ -181,15 +181,15 @@ pub enum AccountUpdateRaw {
         #[serde(rename = "N")]
         commission_asset: Option<String>,
         #[serde(rename = "T")]
-        transaction_time: u128,
-        #[serde(rename = "I")]
-        trade_id: u128,
+        transaction_time: u64,
+        #[serde(rename = "t")]
+        trade_id: u64,
         #[serde(rename = "w")]
         is_order_on_book: bool,
         #[serde(rename = "m")]
         is_maker: bool,
         #[serde(rename = "O")]
-        create_time: u128,
+        create_time: u64,
         #[serde(rename = "Z")]
         cumulative_quote_qty: Decimal,
         #[serde(rename = "Y")]
@@ -197,7 +197,7 @@ pub enum AccountUpdateRaw {
         #[serde(rename = "Q")]
         quote_order_qty: Decimal,
         #[serde(rename = "W")]
-        working_time: u128,
+        working_time: u64,
         #[serde(rename = "V")]
         self_trade_prevention_mode: String,
     },

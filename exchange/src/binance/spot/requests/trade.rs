@@ -16,7 +16,7 @@ pub struct PlaceOrderRequest {
 
 pub struct CancelOrderRequest {
     pub symbol: String,
-    pub order_id: Option<u128>,
+    pub order_id: Option<u64>,
     pub orig_client_order_id: Option<String>,
     pub new_client_order_id: Option<String>,
 }
@@ -25,7 +25,7 @@ pub struct GetAccountRequest {}
 
 pub struct GetOrderRequest {
     pub symbol: String,
-    pub order_id: Option<u128>,
+    pub order_id: Option<u64>,
     pub orig_client_order_id: Option<String>,
 }
 
@@ -35,16 +35,16 @@ pub struct GetOpenOrdersRequest {
 
 pub struct GetAllOrdersRequest {
     pub symbol: String,
-    pub order_id: Option<u128>, // 仅返回该id以后的订单
-    pub start_time: Option<u128>,
-    pub end_time: Option<u128>,
+    pub order_id: Option<u64>, // 仅返回该id以后的订单
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
     pub limit: Option<u32>, // default 500; max 1000
 }
 
 pub struct GetTradesRequest {
     pub symbol: String,
-    pub from_id: Option<u128>, // 仅返回该id以后的订单
-    pub start_time: Option<u128>,
-    pub end_time: Option<u128>,
+    pub from_id: Option<u64>, // 仅返回该id以后的订单
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
     pub limit: Option<u32>, // default 500; max 1000
 }

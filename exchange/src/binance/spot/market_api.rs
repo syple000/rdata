@@ -241,21 +241,26 @@ impl MarketApi {
             }
         };
 
-        let text = resp
-            .map_err(|e| {
-                error!("Network error: {:?}", e);
-                BinanceError::NetworkError {
-                    message: e.to_string(),
-                }
-            })?
-            .text()
-            .await
-            .map_err(|e| {
-                error!("Network error: {:?}", e);
-                BinanceError::NetworkError {
-                    message: e.to_string(),
-                }
-            })?;
+        let resp = resp.map_err(|e| {
+            error!("Network error: {:?}", e);
+            BinanceError::NetworkError {
+                message: e.to_string(),
+            }
+        })?;
+        if resp.status() != reqwest::StatusCode::OK {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            error!("Response error: status: {}, text: {}", status, text);
+            return Err(BinanceError::ParseResultError {
+                message: format!("status: {}, text: {}", status, text),
+            });
+        }
+        let text = resp.text().await.map_err(|e| {
+            error!("Network error: {:?}", e);
+            BinanceError::NetworkError {
+                message: e.to_string(),
+            }
+        })?;
 
         Ok(text)
     }
