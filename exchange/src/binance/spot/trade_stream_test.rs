@@ -9,7 +9,7 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::select;
+use tokio::sync::Mutex;
 
 #[tokio::test]
 async fn test_trade_stream_basic_functionality() {
@@ -25,6 +25,26 @@ async fn test_trade_stream_basic_functionality() {
         TEST_SPOT_API_KEY.to_string(),
         TEST_SPOT_SECRET_KEY.to_string(),
     );
+    let outbound_account_positions = Arc::new(Mutex::new(vec![]));
+    let outbound_account_positions_clone = outbound_account_positions.clone();
+    let execution_reports = Arc::new(Mutex::new(vec![]));
+    let execution_reports_clone = execution_reports.clone();
+    trade_stream.register_outbound_account_position_callback(move |update| {
+        let outbound_account_positions = outbound_account_positions_clone.clone();
+        Box::pin(async move {
+            let mut positions = outbound_account_positions.lock().await;
+            positions.push(update);
+            Ok(())
+        })
+    });
+    trade_stream.register_execution_report_callback(move |report| {
+        let execution_reports = execution_reports_clone.clone();
+        Box::pin(async move {
+            let mut reports = execution_reports.lock().await;
+            reports.push(report);
+            Ok(())
+        })
+    });
 
     let shutdown_token = trade_stream.init().await.unwrap();
 
@@ -51,12 +71,16 @@ async fn test_trade_stream_basic_functionality() {
     };
     let _ = trade_api.place_order(req).await;
 
-    select! {
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
-            shutdown_token.cancel();
-        }
-        _ = shutdown_token.cancelled() => {
-            println!("Trade stream cancelled");
-        }
-    }
+    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+    shutdown_token.cancel();
+    trade_stream.close().await.unwrap();
+
+    let outbound_account_positions = outbound_account_positions.lock().await;
+    json::dump(
+        &*outbound_account_positions,
+        "outbound_account_positions.json",
+    )
+    .unwrap();
+    let execution_reports = execution_reports.lock().await;
+    json::dump(&*execution_reports, "execution_reports.json").unwrap();
 }

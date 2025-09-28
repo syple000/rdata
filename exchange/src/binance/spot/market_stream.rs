@@ -157,6 +157,18 @@ impl MarketStream {
         Ok(shutdown_token)
     }
 
+    pub async fn close(&self) -> Result<()> {
+        if let Some(client) = &self.client {
+            client.disconnect().await.map_err(|e| {
+                error!("WebSocket close error: {:?}", e);
+                BinanceError::NetworkError {
+                    message: e.to_string(),
+                }
+            })?;
+        }
+        Ok(())
+    }
+
     fn rand_id() -> String {
         rand::rng()
             .sample_iter(&Alphanumeric)

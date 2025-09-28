@@ -201,6 +201,8 @@ pub enum AccountUpdateRaw {
         #[serde(rename = "V")]
         self_trade_prevention_mode: String,
     },
+    #[serde(other)]
+    Unknown,
 }
 
 impl AccountUpdateRaw {

@@ -1,3 +1,11 @@
+use crate::binance::{
+    errors::{BinanceError, Result},
+    spot::{
+        models::{ExecutionReport, OutboundAccountPosition},
+        parser::AccountUpdateRaw,
+    },
+    utils::{encode_params, hmac_sha256, sort_params},
+};
 use log::{error, info};
 use rand::{distr::Alphanumeric, Rng};
 use rate_limiter::RateLimiter;
@@ -5,12 +13,6 @@ use serde::Deserialize;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use ws::{RecvMsg, SendMsg};
-
-use crate::binance::{
-    errors::{BinanceError, Result},
-    spot::models::{ExecutionReport, OutboundAccountPosition},
-    utils::{encode_params, hmac_sha256, sort_params},
-};
 
 type Fut = Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>;
 pub struct TradeStream {
@@ -152,6 +154,18 @@ impl TradeStream {
         Ok(shutdown_token)
     }
 
+    pub async fn close(&self) -> Result<()> {
+        if let Some(client) = &self.client {
+            client.disconnect().await.map_err(|e| {
+                error!("WebSocket close error: {:?}", e);
+                BinanceError::NetworkError {
+                    message: e.to_string(),
+                }
+            })?;
+        }
+        Ok(())
+    }
+
     fn rand_id() -> String {
         rand::rng()
             .sample_iter(&Alphanumeric)
@@ -175,8 +189,8 @@ impl TradeStream {
 
     async fn handle(
         msg: RecvMsg,
-        _execution_report_cb: Option<Arc<dyn Fn(ExecutionReport) -> Fut + Send + Sync + 'static>>,
-        _account_update_cb: Option<
+        execution_report_cb: Option<Arc<dyn Fn(ExecutionReport) -> Fut + Send + Sync + 'static>>,
+        outbound_account_position_cb: Option<
             Arc<dyn Fn(OutboundAccountPosition) -> Fut + Send + Sync + 'static>,
         >,
     ) -> ws::Result<()> {
@@ -193,7 +207,48 @@ impl TradeStream {
             }
         };
 
-        info!("handle msg: {}", text);
-        Ok(())
+        #[derive(Deserialize)]
+        struct StreamMsg {
+            event: AccountUpdateRaw,
+        }
+
+        let account_update = serde_json::from_str::<StreamMsg>(&text)
+            .map_err(|e| ws::WsError::HandleError {
+                message: format!("Parse message error: {:?}, msg: {}", e, text),
+            })?
+            .event;
+
+        match account_update {
+            AccountUpdateRaw::Unknown => {
+                info!("Unknown message: {}", text);
+                return Ok(());
+            }
+            AccountUpdateRaw::OutboundAccountPosition { .. } => {
+                info!("OutboundAccountPosition message: {}", text);
+                if outbound_account_position_cb.is_none() {
+                    return Ok(());
+                }
+                let outbound_account_position = account_update
+                    .into_outbound_account_position()
+                    .map_err(|e| ws::WsError::HandleError {
+                        message: format!("Convert to OutboundAccountPosition error: {:?}", e),
+                    })?;
+                outbound_account_position_cb.unwrap()(outbound_account_position).await?;
+                return Ok(());
+            }
+            AccountUpdateRaw::ExecutionReport { .. } => {
+                info!("ExecutionReport message: {}", text);
+                if execution_report_cb.is_none() {
+                    return Ok(());
+                }
+                let execution_report = account_update.into_execution_report().map_err(|e| {
+                    ws::WsError::HandleError {
+                        message: format!("Convert to ExecutionReport error: {:?}", e),
+                    }
+                })?;
+                execution_report_cb.unwrap()(execution_report).await?;
+                return Ok(());
+            }
+        }
     }
 }
