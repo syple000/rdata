@@ -416,6 +416,44 @@ async fn test_cancel_order_by_client_order_id() {
     }
 }
 
+#[tokio::test]
+async fn test_get_open_orders() {
+    let trade_api = setup_test_trade_api();
+
+    let req = PlaceOrderRequest {
+        symbol: "BTCUSDT".to_string(),
+        side: Side::Buy,
+        r#type: OrderType::Limit,
+        time_in_force: Some(TimeInForce::Gtc),
+        quantity: Some(Decimal::from_str("0.001").unwrap()),
+        price: Some(Decimal::from_str("25000.00").unwrap()), // 设置一个较低的价格以避免意外成交
+        new_client_order_id: Some(format!(
+            "test_order_{}",
+            time::get_current_milli_timestamp()
+        )),
+        stop_price: None,
+        iceberg_qty: None,
+    };
+
+    let _ = trade_api.place_order(req).await;
+
+    let req = GetOpenOrdersRequest {
+        symbol: Some("BTCUSDT".to_string()),
+    };
+
+    let result = trade_api.get_open_orders(req).await;
+
+    match result {
+        Ok(orders) => {
+            println!("Got {} open orders", orders.len());
+            json::dump(&orders, "open_orders.json").unwrap();
+        }
+        Err(e) => {
+            panic!("Failed to get open orders: {:?}", e);
+        }
+    }
+}
+
 // 由于其他方法（get_order, get_open_orders 等）还未实现，暂时注释掉这些测试
 // 当这些方法实现后，可以取消注释并完善测试
 
@@ -439,27 +477,6 @@ async fn test_get_order() {
         }
         Err(e) => {
             println!("Failed to get order: {:?}", e);
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_get_open_orders() {
-    let trade_api = setup_test_trade_api();
-
-    let req = GetOpenOrdersRequest {
-        symbol: Some("BTCUSDT".to_string()),
-    };
-
-    let result = trade_api.get_open_orders(req).await;
-
-    match result {
-        Ok(orders) => {
-            println!("Got {} open orders", orders.len());
-            json::dump(&orders, "open_orders.json").unwrap();
-        }
-        Err(e) => {
-            println!("Failed to get open orders: {:?}", e);
         }
     }
 }

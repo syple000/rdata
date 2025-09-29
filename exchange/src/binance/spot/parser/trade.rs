@@ -156,6 +156,11 @@ pub fn parse_get_order(data: &str) -> Result<Order, serde_json::Error> {
     Ok(raw.into())
 }
 
+pub fn parse_get_open_orders(data: &str) -> Result<Vec<Order>, serde_json::Error> {
+    let raw_orders: Vec<GetOrderRaw> = serde_json::from_str(data)?;
+    Ok(raw_orders.into_iter().map(|raw| raw.into()).collect())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Balance {
     #[serde(rename = "a")]

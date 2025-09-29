@@ -2,7 +2,7 @@ use crate::binance::{
     errors::{BinanceError, Result},
     spot::{
         models::{OrderType, TimeInForce},
-        parser::{parse_get_order, parse_place_order},
+        parser::{parse_get_open_orders, parse_get_order, parse_place_order},
         requests::*,
         responses::*,
     },
@@ -235,7 +235,25 @@ impl TradeApi {
         &self,
         req: GetOpenOrdersRequest,
     ) -> Result<GetOpenOrdersResponse> {
-        unimplemented!()
+        let mut params = vec![];
+
+        let weight = if req.symbol.is_some() {
+            params.push(("symbol", req.symbol.as_ref().unwrap().clone()));
+            6
+        } else {
+            80
+        };
+
+        let text = self
+            .send_signed_request(reqwest::Method::GET, "/api/v3/openOrders", params, weight)
+            .await?;
+
+        info!("Get open orders response: {}", text);
+        parse_get_open_orders(&text).map_err(|e| {
+            crate::binance::errors::BinanceError::ParseResultError {
+                message: format!("{}, {}", text, e.to_string()),
+            }
+        })
     }
 
     pub async fn get_all_orders(&self, req: GetAllOrdersRequest) -> Result<GetAllOrdersResponse> {
