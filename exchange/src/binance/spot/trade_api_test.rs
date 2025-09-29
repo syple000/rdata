@@ -454,33 +454,6 @@ async fn test_get_open_orders() {
     }
 }
 
-// 由于其他方法（get_order, get_open_orders 等）还未实现，暂时注释掉这些测试
-// 当这些方法实现后，可以取消注释并完善测试
-
-/*
-#[tokio::test]
-async fn test_get_order() {
-    let trade_api = setup_test_trade_api();
-
-    let req = GetOrderRequest {
-        symbol: "BTCUSDT".to_string(),
-        order_id: Some(12345),
-        orig_client_order_id: None,
-    };
-
-    let result = trade_api.get_order(req).await;
-
-    match result {
-        Ok(order) => {
-            println!("Got order: {:?}", order);
-            json::dump(&order, "get_order.json").unwrap();
-        }
-        Err(e) => {
-            println!("Failed to get order: {:?}", e);
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_get_all_orders() {
     let trade_api = setup_test_trade_api();
@@ -490,7 +463,7 @@ async fn test_get_all_orders() {
         order_id: None,
         start_time: Some(time::get_current_milli_timestamp() - 24 * 60 * 60 * 1000), // 24小时前
         end_time: Some(time::get_current_milli_timestamp()),
-        limit: Some(10),
+        limit: Some(4),
     };
 
     let result = trade_api.get_all_orders(req).await;
@@ -501,7 +474,7 @@ async fn test_get_all_orders() {
             json::dump(&orders, "all_orders.json").unwrap();
         }
         Err(e) => {
-            println!("Failed to get all orders: {:?}", e);
+            panic!("Failed to get all orders: {:?}", e);
         }
     }
 }
@@ -512,21 +485,22 @@ async fn test_get_trades() {
 
     let req = GetTradesRequest {
         symbol: "BTCUSDT".to_string(),
+        order_id: None,
         from_id: None,
         start_time: Some(time::get_current_milli_timestamp() - 24 * 60 * 60 * 1000), // 24小时前
         end_time: Some(time::get_current_milli_timestamp()),
-        limit: Some(10),
+        limit: Some(3),
     };
 
     let result = trade_api.get_trades(req).await;
 
     match result {
         Ok(trades) => {
-            println!("Got {} trades", trades.len());
+            println!("Got {} trades for BTCUSDT", trades.len());
             json::dump(&trades, "trades.json").unwrap();
         }
         Err(e) => {
-            println!("Failed to get trades: {:?}", e);
+            panic!("Failed to get trades for BTCUSDT: {:?}", e);
         }
     }
 }
@@ -535,6 +509,23 @@ async fn test_get_trades() {
 async fn test_get_account() {
     let trade_api = setup_test_trade_api();
 
+    let req = PlaceOrderRequest {
+        symbol: "BTCUSDT".to_string(),
+        side: Side::Sell,
+        r#type: OrderType::Limit,
+        time_in_force: Some(TimeInForce::Gtc),
+        quantity: Some(Decimal::from_str("0.001").unwrap()),
+        price: Some(Decimal::from_str("200000.00").unwrap()),
+        new_client_order_id: Some(format!(
+            "test_order_{}",
+            time::get_current_milli_timestamp()
+        )),
+        stop_price: None,
+        iceberg_qty: None,
+    };
+
+    let resp = trade_api.place_order(req).await.unwrap();
+
     let req = GetAccountRequest {};
 
     let result = trade_api.get_account(req).await;
@@ -542,11 +533,20 @@ async fn test_get_account() {
     match result {
         Ok(account) => {
             println!("Got account info: {:?}", account);
-            json::dump(&account, "account.json").unwrap();
+            json::dump(&account, "account_info.json").unwrap();
         }
         Err(e) => {
-            println!("Failed to get account info: {:?}", e);
+            panic!("Failed to get account info: {:?}", e);
         }
     }
+
+    trade_api
+        .cancel_order(CancelOrderRequest {
+            symbol: "BTCUSDT".to_string(),
+            order_id: Some(resp.order_id),
+            orig_client_order_id: None,
+            new_client_order_id: None,
+        })
+        .await
+        .unwrap();
 }
-*/

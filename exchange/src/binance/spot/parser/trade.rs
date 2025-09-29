@@ -161,6 +161,116 @@ pub fn parse_get_open_orders(data: &str) -> Result<Vec<Order>, serde_json::Error
     Ok(raw_orders.into_iter().map(|raw| raw.into()).collect())
 }
 
+pub fn parse_get_all_orders(data: &str) -> Result<Vec<Order>, serde_json::Error> {
+    let raw_orders: Vec<GetOrderRaw> = serde_json::from_str(data)?;
+    Ok(raw_orders.into_iter().map(|raw| raw.into()).collect())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetTradeRaw {
+    symbol: String,
+    id: u64,
+    #[serde(rename = "orderId", deserialize_with = "de_u64_allow_negative")]
+    order_id: u64,
+    price: Decimal,
+    qty: Decimal,
+    #[serde(rename = "quoteQty")]
+    quote_qty: Decimal,
+    commission: Decimal,
+    #[serde(rename = "commissionAsset")]
+    commission_asset: String,
+    time: u64,
+    #[serde(rename = "isBuyer")]
+    is_buyer: bool,
+    #[serde(rename = "isMaker")]
+    is_maker: bool,
+}
+
+impl From<GetTradeRaw> for crate::binance::spot::models::Trade {
+    fn from(raw: GetTradeRaw) -> Self {
+        crate::binance::spot::models::Trade {
+            trade_id: raw.id,
+            order_id: raw.order_id,
+            symbol: raw.symbol,
+            order_side: if raw.is_buyer {
+                crate::binance::spot::models::Side::Buy
+            } else {
+                crate::binance::spot::models::Side::Sell
+            },
+            trade_price: raw.price,
+            trade_quantity: raw.qty,
+            commission: raw.commission,
+            commission_asset: raw.commission_asset,
+            is_maker: raw.is_maker,
+            timestamp: raw.time,
+        }
+    }
+}
+
+pub fn parse_get_trades(
+    data: &str,
+) -> Result<Vec<crate::binance::spot::models::Trade>, serde_json::Error> {
+    let raw_trades: Vec<GetTradeRaw> = serde_json::from_str(data)?;
+    Ok(raw_trades.into_iter().map(|raw| raw.into()).collect())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetAccountRaw {
+    #[serde(rename = "makerCommission")]
+    maker_commission: u64,
+    #[serde(rename = "takerCommission")]
+    taker_commission: u64,
+    #[serde(rename = "buyerCommission")]
+    buyer_commission: u64,
+    #[serde(rename = "sellerCommission")]
+    seller_commission: u64,
+    #[serde(rename = "canTrade")]
+    can_trade: bool,
+    #[serde(rename = "canWithdraw")]
+    can_withdraw: bool,
+    #[serde(rename = "canDeposit")]
+    can_deposit: bool,
+    #[serde(rename = "updateTime")]
+    update_time: u64,
+    balances: Vec<BalanceRaw>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BalanceRaw {
+    asset: String,
+    free: Decimal,
+    locked: Decimal,
+}
+
+impl From<GetAccountRaw> for crate::binance::spot::models::Account {
+    fn from(raw: GetAccountRaw) -> Self {
+        crate::binance::spot::models::Account {
+            maker_commission_rate: Decimal::from(raw.maker_commission) / Decimal::new(10000, 0),
+            taker_commission_rate: Decimal::from(raw.taker_commission) / Decimal::new(10000, 0),
+            buyer_commission_rate: Decimal::from(raw.buyer_commission) / Decimal::new(10000, 0),
+            seller_commission_rate: Decimal::from(raw.seller_commission) / Decimal::new(10000, 0),
+            balances: raw
+                .balances
+                .into_iter()
+                .map(|b| crate::binance::spot::models::Balance {
+                    asset: b.asset,
+                    free: b.free,
+                    locked: b.locked,
+                })
+                .collect(),
+            can_trade: raw.can_trade,
+            update_time: raw.update_time,
+        }
+    }
+}
+
+pub fn parse_get_account(
+    data: &str,
+) -> Result<crate::binance::spot::models::Account, serde_json::Error> {
+    let raw: GetAccountRaw = serde_json::from_str(data)?;
+    Ok(raw.into())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Balance {
     #[serde(rename = "a")]

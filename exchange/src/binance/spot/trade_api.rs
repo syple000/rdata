@@ -2,7 +2,10 @@ use crate::binance::{
     errors::{BinanceError, Result},
     spot::{
         models::{OrderType, TimeInForce},
-        parser::{parse_get_open_orders, parse_get_order, parse_place_order},
+        parser::{
+            parse_get_account, parse_get_all_orders, parse_get_open_orders, parse_get_order,
+            parse_get_trades, parse_place_order,
+        },
         requests::*,
         responses::*,
     },
@@ -257,15 +260,211 @@ impl TradeApi {
     }
 
     pub async fn get_all_orders(&self, req: GetAllOrdersRequest) -> Result<GetAllOrdersResponse> {
-        unimplemented!()
+        let start_time = req.start_time.unwrap_or(0);
+        let end_time = req.end_time.unwrap_or(0);
+        let batch_size = req.limit.unwrap_or(500) as u32;
+
+        if start_time > 0 && start_time >= end_time {
+            return Err(BinanceError::ParametersInvalid {
+                message: format!(
+                    "start_time: {} must be less than end_time: {}",
+                    start_time, end_time
+                ),
+            });
+        }
+        if end_time > 0 && (end_time - start_time) > 24 * 60 * 60 * 1000 {
+            return Err(BinanceError::ParametersInvalid {
+                message: "The time between start_time and end_time can't be longer than 24 hours"
+                    .to_string(),
+            });
+        }
+
+        let mut all_orders = Vec::<crate::binance::spot::models::Order>::new();
+        let mut current_order_id = req.order_id;
+
+        loop {
+            info!(
+                "get all orders with parameters start_time: {}, end_time: {}, limit: {}, order_id: {:?}",
+                start_time, end_time, batch_size, current_order_id
+            );
+
+            let mut params = vec![
+                ("symbol", req.symbol.clone()),
+                ("limit", batch_size.to_string()),
+            ];
+
+            if let Some(order_id) = current_order_id {
+                params.push(("orderId", order_id.to_string()));
+            } else if start_time > 0 {
+                params.push(("startTime", start_time.to_string()));
+                params.push(("endTime", end_time.to_string()));
+            }
+
+            let text = self
+                .send_signed_request(reqwest::Method::GET, "/api/v3/allOrders", params, 20)
+                .await?;
+
+            let mut batch_orders = parse_get_all_orders(&text).map_err(|e| {
+                error!("Parse result: {:?} error: {:?}", text, e);
+                BinanceError::ParseResultError {
+                    message: e.to_string(),
+                }
+            })?;
+
+            batch_orders.sort_by(|a, b| a.order_id.cmp(&b.order_id));
+
+            if start_time > 0 {
+                let mut index = batch_orders.len();
+                for (i, order) in batch_orders.iter().enumerate() {
+                    if order.update_time > end_time {
+                        index = i;
+                        break;
+                    }
+                }
+                batch_orders.truncate(index);
+            }
+
+            all_orders.extend_from_slice(&batch_orders);
+
+            if batch_orders.len() < batch_size as usize {
+                break;
+            }
+            if start_time == 0 {
+                break;
+            }
+
+            if let Some(last_order) = batch_orders.last() {
+                current_order_id = Some(last_order.order_id + 1);
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_orders)
     }
 
     pub async fn get_trades(&self, req: GetTradesRequest) -> Result<GetTradesResponse> {
-        unimplemented!()
+        let start_time = req.start_time.unwrap_or(0);
+        let end_time = req.end_time.unwrap_or(0);
+        let batch_size = req.limit.unwrap_or(500) as u32;
+
+        if start_time > 0 && start_time >= end_time {
+            return Err(BinanceError::ParametersInvalid {
+                message: format!(
+                    "start_time: {} must be less than end_time: {}",
+                    start_time, end_time
+                ),
+            });
+        }
+
+        if end_time > 0 && (end_time - start_time) > 24 * 60 * 60 * 1000 {
+            return Err(BinanceError::ParametersInvalid {
+                message: "The time between start_time and end_time can't be longer than 24 hours"
+                    .to_string(),
+            });
+        }
+
+        // 验证参数组合的合法性
+        if (req.from_id.is_some() || req.order_id.is_some())
+            && (req.start_time.is_some() || req.end_time.is_some())
+        {
+            return Err(BinanceError::ParametersInvalid {
+                message:
+                    "If fromId or orderId is set, neither startTime nor endTime can be provided"
+                        .to_string(),
+            });
+        }
+
+        let mut all_trades = Vec::<crate::binance::spot::models::Trade>::new();
+        let mut current_from_id = req.from_id;
+
+        loop {
+            info!(
+                "get trades with parameters symbol: {}, start_time: {}, end_time: {}, limit: {}, order_id: {:?}, from_id: {:?}",
+                req.symbol, start_time, end_time, batch_size, req.order_id, current_from_id
+            );
+
+            let mut params = vec![
+                ("symbol", req.symbol.clone()),
+                ("limit", batch_size.to_string()),
+            ];
+
+            let weight = if req.order_id.is_some() {
+                params.push(("orderId", req.order_id.unwrap().to_string()));
+                5
+            } else {
+                20
+            };
+
+            if let Some(from_id) = current_from_id {
+                params.push(("fromId", from_id.to_string()));
+            } else if start_time > 0 {
+                params.push(("startTime", start_time.to_string()));
+                params.push(("endTime", end_time.to_string()));
+            }
+
+            let text = self
+                .send_signed_request(reqwest::Method::GET, "/api/v3/myTrades", params, weight)
+                .await?;
+
+            let mut batch_trades = parse_get_trades(&text).map_err(|e| {
+                error!("Parse result: {:?} error: {:?}", text, e);
+                BinanceError::ParseResultError {
+                    message: e.to_string(),
+                }
+            })?;
+
+            // 按照 trade_id 排序
+            batch_trades.sort_by(|a, b| a.trade_id.cmp(&b.trade_id));
+
+            // 如果有时间范围限制，过滤超出范围的交易
+            if start_time > 0 && end_time > 0 {
+                let mut index = batch_trades.len();
+                for (i, trade) in batch_trades.iter().enumerate() {
+                    if trade.timestamp > end_time {
+                        index = i;
+                        break;
+                    }
+                }
+                batch_trades.truncate(index);
+            }
+
+            all_trades.extend_from_slice(&batch_trades);
+
+            // 如果返回的数据少于请求的数量，说明已经获取完所有数据
+            if batch_trades.len() < batch_size as usize {
+                break;
+            }
+
+            if start_time == 0 {
+                break;
+            }
+
+            // 设置下一次请求的 from_id
+            if let Some(last_trade) = batch_trades.last() {
+                current_from_id = Some(last_trade.trade_id + 1);
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_trades)
     }
 
-    pub async fn get_account(&self, req: GetAccountRequest) -> Result<GetAccountResponse> {
-        unimplemented!()
+    pub async fn get_account(&self, _: GetAccountRequest) -> Result<GetAccountResponse> {
+        let params = vec![];
+
+        let text = self
+            .send_signed_request(reqwest::Method::GET, "/api/v3/account", params, 20)
+            .await?;
+
+        info!("Get account response: {}", text);
+
+        parse_get_account(&text).map_err(|e| {
+            crate::binance::errors::BinanceError::ParseResultError {
+                message: format!("{}, {}", text, e.to_string()),
+            }
+        })
     }
 
     async fn send_signed_request(
