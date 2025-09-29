@@ -3,6 +3,8 @@ use crate::binance::{
     spot::{
         models::{ExecutionReport, OutboundAccountPosition},
         parser::AccountUpdateRaw,
+        requests::{CancelOrderRequest, PlaceOrderRequest},
+        responses::{CancelOrderResponse, PlaceOrderResponse},
     },
     utils::{encode_params, hmac_sha256, sort_params},
 };
@@ -152,6 +154,15 @@ impl TradeStream {
         self.client = Some(ws_client);
 
         Ok(shutdown_token)
+    }
+
+    // 支持websocket下单/撤单等时间延迟敏感操作
+    // 普通查询可以走API接口
+    pub async fn place_order(&self, req: PlaceOrderRequest) -> Result<PlaceOrderResponse> {
+        unimplemented!()
+    }
+    pub async fn cancel_order(&self, req: CancelOrderRequest) -> Result<CancelOrderResponse> {
+        unimplemented!()
     }
 
     pub async fn close(&self) -> Result<()> {
