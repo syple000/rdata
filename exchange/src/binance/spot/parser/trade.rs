@@ -4,11 +4,51 @@ use crate::binance::spot::{
 };
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use serde::Deserializer;
+
+// 允许负数的 u64 反序列化
+fn de_u64_allow_negative<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Visitor;
+    use std::fmt;
+
+    struct U64Visitor;
+
+    impl<'de> Visitor<'de> for U64Visitor {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a u64 or i64")
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            if v < 0 {
+                Ok(0)
+            } else {
+                Ok(v as u64)
+            }
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v)
+        }
+    }
+
+    deserializer.deserialize_any(U64Visitor)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PlaceOrderRaw {
     symbol: String,
-    #[serde(rename = "orderId")]
+    #[serde(rename = "orderId", deserialize_with = "de_u64_allow_negative")]
     order_id: u64,
     #[serde(rename = "clientOrderId")]
     client_order_id: String,
@@ -62,7 +102,7 @@ pub fn parse_place_order(req: PlaceOrderRequest, data: &str) -> Result<Order, se
 #[derive(Debug, Deserialize)]
 pub struct GetOrderRaw {
     symbol: String,
-    #[serde(rename = "orderId")]
+    #[serde(rename = "orderId", deserialize_with = "de_u64_allow_negative")]
     order_id: u64,
     #[serde(rename = "clientOrderId")]
     client_order_id: String,
@@ -168,7 +208,7 @@ pub enum AccountUpdateRaw {
         order_status: OrderStatus,
         #[serde(rename = "r")]
         order_reject_reason: String,
-        #[serde(rename = "i")]
+        #[serde(rename = "i", deserialize_with = "de_u64_allow_negative")]
         order_id: u64,
         #[serde(rename = "l")]
         last_executed_qty: Decimal,
@@ -182,7 +222,7 @@ pub enum AccountUpdateRaw {
         commission_asset: Option<String>,
         #[serde(rename = "T")]
         transaction_time: u64,
-        #[serde(rename = "t")]
+        #[serde(rename = "t", deserialize_with = "de_u64_allow_negative")]
         trade_id: u64,
         #[serde(rename = "w")]
         is_order_on_book: bool,
