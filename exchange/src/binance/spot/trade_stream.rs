@@ -1,8 +1,8 @@
 use crate::binance::{
     errors::{BinanceError, Result},
     spot::{
-        models::{ExecutionReport, Order, OrderType, OutboundAccountPosition, TimeInForce},
-        parser::{AccountUpdateRaw, PlaceOrderStreamRaw},
+        models::{ExecutionReport, OrderType, OutboundAccountPosition, TimeInForce},
+        parser::{AccountUpdateRaw, CancelOrderStreamRaw, PlaceOrderStreamRaw},
         requests::{CancelOrderRequest, PlaceOrderRequest},
         responses::{CancelOrderResponse, PlaceOrderResponse},
     },
@@ -96,14 +96,8 @@ impl TradeStream {
         })?;
 
         let msg_id = Self::rand_id();
-        let mut params = vec![
-            ("apiKey", self.api_key.clone()),
-            ("timestamp", time::get_current_milli_timestamp().to_string()),
-            ("recvWindow", "5000".to_string()),
-        ];
-        sort_params(&mut params);
-        let signature = hmac_sha256(&self.secret_key, encode_params(&params).as_ref());
-        params.push(("signature", signature));
+        let mut params = vec![];
+        self.sign_params(&mut params);
         let content = serde_json::to_string(&serde_json::json!({
             "id": msg_id,
             "method": "userDataStream.subscribe.signature",
@@ -127,7 +121,7 @@ impl TradeStream {
         struct Resp {
             id: String,
             status: i32,
-            result: HashMap<String, serde_json::Value>,
+            result: Option<HashMap<String, serde_json::Value>>,
         }
         match recv_msg {
             RecvMsg::Text { msg_id: _, content } => {
@@ -249,55 +243,34 @@ impl TradeStream {
         }
 
         let mut params = vec![
-            ("symbol", serde_json::Value::from(req.symbol.clone())),
-            (
-                "side",
-                serde_json::Value::from(req.side.as_str().to_string()),
-            ),
-            (
-                "type",
-                serde_json::Value::from(req.r#type.as_str().to_string()),
-            ),
-            (
-                "newOrderRespType",
-                serde_json::Value::from("ACK".to_string()),
-            ),
+            ("symbol", req.symbol.clone()),
+            ("side", req.side.as_str().to_string()),
+            ("type", req.r#type.as_str().to_string()),
+            ("newOrderRespType", "ACK".to_string()),
         ];
         if req.time_in_force.is_some() {
             params.push((
                 "timeInForce",
-                serde_json::Value::from(req.time_in_force.as_ref().unwrap().as_str().to_string()),
+                req.time_in_force.as_ref().unwrap().as_str().to_string(),
             ));
         }
         if req.quantity.is_some() {
-            params.push((
-                "quantity",
-                serde_json::Value::from(req.quantity.unwrap().to_string()),
-            ));
+            params.push(("quantity", req.quantity.unwrap().to_string()));
         }
         if req.price.is_some() {
-            params.push((
-                "price",
-                serde_json::Value::from(req.price.unwrap().to_string()),
-            ));
+            params.push(("price", req.price.unwrap().to_string()));
         }
         if req.new_client_order_id.is_some() {
             params.push((
                 "newClientOrderId",
-                serde_json::Value::from(req.new_client_order_id.as_ref().unwrap().to_string()),
+                req.new_client_order_id.as_ref().unwrap().to_string(),
             ));
         }
         if req.stop_price.is_some() {
-            params.push((
-                "stopPrice",
-                serde_json::Value::from(req.stop_price.unwrap().to_string()),
-            ));
+            params.push(("stopPrice", req.stop_price.unwrap().to_string()));
         }
         if req.iceberg_qty.is_some() {
-            params.push((
-                "icebergQty",
-                serde_json::Value::from(req.iceberg_qty.unwrap().to_string()),
-            ));
+            params.push(("icebergQty", req.iceberg_qty.unwrap().to_string()));
         }
 
         self.sign_params(&mut params);
@@ -336,12 +309,12 @@ impl TradeStream {
                 })?;
                 if resp.status != 200 {
                     return Err(BinanceError::NetworkError {
-                        message: format!("Place order failed: {:?}", resp),
+                        message: format!("Place order failed: {:?}", content),
                     });
                 }
                 if resp.result.is_none() {
                     return Err(BinanceError::NetworkError {
-                        message: format!("Place order failed: {:?}", resp),
+                        message: format!("Place order failed: {:?}", content),
                     });
                 }
                 Ok((req, resp.result.unwrap()).into())
@@ -353,7 +326,81 @@ impl TradeStream {
     }
 
     pub async fn cancel_order(&self, req: CancelOrderRequest) -> Result<CancelOrderResponse> {
-        unimplemented!()
+        let client = match &self.client {
+            Some(c) => c,
+            None => {
+                return Err(BinanceError::NetworkError {
+                    message: "WebSocket client is not connected".to_string(),
+                })
+            }
+        };
+
+        // Validate parameters: either order_id or orig_client_order_id must be provided
+        if req.order_id.is_none() && req.orig_client_order_id.is_none() {
+            return Err(BinanceError::ParametersInvalid {
+                message: "Either orderId or origClientOrderId must be provided".to_string(),
+            });
+        }
+
+        let mut params = vec![("symbol", req.symbol.clone())];
+
+        if let Some(order_id) = req.order_id {
+            params.push(("orderId", order_id.to_string()));
+        }
+
+        if let Some(orig_client_order_id) = &req.orig_client_order_id {
+            params.push(("origClientOrderId", orig_client_order_id.clone()));
+        }
+
+        if let Some(new_client_order_id) = &req.new_client_order_id {
+            params.push(("newClientOrderId", new_client_order_id.clone()));
+        }
+
+        self.sign_params(&mut params);
+
+        let msg_id = Self::rand_id();
+        let content = serde_json::to_string(&serde_json::json!(
+            {
+                "id": msg_id.clone(),
+                "method": "order.cancel",
+                "params": params.into_iter().collect::<HashMap<_, _>>(),
+            }
+        ))
+        .unwrap();
+
+        let recv_msg = client
+            .call(SendMsg::Text {
+                msg_id: Some(msg_id),
+                content,
+                weight: Some(1),
+            })
+            .await
+            .map_err(|e| {
+                error!("WebSocket send cancel order message error: {:?}", e);
+                BinanceError::NetworkError {
+                    message: e.to_string(),
+                }
+            })?;
+
+        match recv_msg {
+            RecvMsg::Text { msg_id: _, content } => {
+                let resp = serde_json::from_str::<CancelOrderStreamRaw>(&content).map_err(|e| {
+                    error!("Parse cancel order response error: {:?}", e);
+                    BinanceError::ParseResultError {
+                        message: e.to_string(),
+                    }
+                })?;
+                if resp.status != 200 {
+                    return Err(BinanceError::NetworkError {
+                        message: format!("Cancel order failed: {:?}", content),
+                    });
+                }
+                Ok(())
+            }
+            _ => Err(BinanceError::NetworkError {
+                message: format!("Unexpected cancel order response: {:?}", recv_msg),
+            }),
+        }
     }
 
     pub async fn close(&self) -> Result<()> {
@@ -454,19 +501,15 @@ impl TradeStream {
         }
     }
 
-    fn sign_params(&self, params: &mut Vec<(&str, serde_json::Value)>) {
-        // 添加默认窗口和时间戳参数
-        params.push((
-            "timestamp",
-            serde_json::Value::from(time::get_current_milli_timestamp()),
-        ));
-        params.push(("recvWindow", serde_json::Value::from("5000".to_string())));
+    fn sign_params(&self, params: &mut Vec<(&str, String)>) {
+        params.push(("apiKey", self.api_key.clone()));
+        params.push(("timestamp", time::get_current_milli_timestamp().to_string()));
+        params.push(("recvWindow", "5000".to_string()));
 
         sort_params(params);
 
         // 添加签名
         let signature = hmac_sha256(&self.secret_key, encode_params(&params).as_str());
-        params.push(("signature", serde_json::Value::from(signature)));
-        params.push(("apiKey", serde_json::Value::from(self.api_key.clone())));
+        params.push(("signature", signature));
     }
 }

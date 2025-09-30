@@ -2,20 +2,18 @@ use super::super::consts::*;
 use super::trade_stream::TradeStream;
 use crate::binance::spot::models::{OrderType, Side, TimeInForce};
 use crate::binance::spot::requests::{CancelOrderRequest, PlaceOrderRequest};
-use crate::binance::spot::trade_api::TradeApi;
-use env_logger::Env;
-use rate_limiter::RateLimiter;
+use env_logger::{Env, Target};
 use rust_decimal::Decimal;
 use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Mutex;
 
 #[tokio::test]
-async fn test_trade_stream_basic_functionality() {
+async fn test_trade_stream() {
     let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .is_test(true)
+        .target(Target::Stdout)
         .format(|buf, record| {
             writeln!(
                 buf,
@@ -60,13 +58,6 @@ async fn test_trade_stream_basic_functionality() {
 
     let shutdown_token = trade_stream.init().await.unwrap();
 
-    let rate_limiter = RateLimiter::new(Duration::from_secs(60), 1200); // 1200 requests per minute
-    let trade_api = TradeApi::new(
-        TEST_SPOT_BASE_URL.to_string(),
-        Some(Arc::new(vec![rate_limiter])),
-        TEST_SPOT_API_KEY.to_string(),
-        TEST_SPOT_SECRET_KEY.to_string(),
-    );
     let req = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
         side: Side::Buy,
@@ -96,16 +87,14 @@ async fn test_trade_stream_basic_functionality() {
         stop_price: None,
         iceberg_qty: None,
     };
-    let resp = trade_api.place_order(req).await.unwrap();
-    let _ = trade_api
-        .cancel_order(CancelOrderRequest {
-            symbol: "BTCUSDT".to_string(),
-            order_id: Some(resp.order_id),
-            orig_client_order_id: None,
-            new_client_order_id: None,
-        })
-        .await
-        .unwrap();
+    let resp = trade_stream.place_order(req).await.unwrap();
+    let req = CancelOrderRequest {
+        symbol: "BTCUSDT".to_string(),
+        order_id: Some(resp.order_id),
+        orig_client_order_id: None,
+        new_client_order_id: None,
+    };
+    let _ = trade_stream.cancel_order(req).await.unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     shutdown_token.cancel();

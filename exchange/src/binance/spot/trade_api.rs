@@ -185,24 +185,9 @@ impl TradeApi {
             ));
         }
 
-        let text = self
+        let _ = self
             .send_signed_request(reqwest::Method::DELETE, "/api/v3/order", params, 1)
             .await?;
-
-        if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&text) {
-            if error_response.get("code").is_some() && error_response.get("msg").is_some() {
-                return Err(crate::binance::errors::BinanceError::ParseResultError {
-                    message: format!(
-                        "Error {}: {}",
-                        error_response["code"].as_i64().unwrap_or(0),
-                        error_response["msg"]
-                            .as_str()
-                            .unwrap_or("Unknown error")
-                            .to_string()
-                    ),
-                });
-            }
-        }
 
         Ok(())
     }

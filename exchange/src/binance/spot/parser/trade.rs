@@ -459,3 +459,9 @@ pub struct PlaceOrderStreamRaw {
     pub status: u32,
     pub result: Option<PlaceOrderRaw>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct CancelOrderStreamRaw {
+    pub status: u32,
+    pub result: Option<serde_json::Value>,
+}
