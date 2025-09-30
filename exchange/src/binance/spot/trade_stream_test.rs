@@ -81,7 +81,7 @@ async fn test_trade_stream_basic_functionality() {
         stop_price: None,
         iceberg_qty: None,
     };
-    let _ = trade_api.place_order(req).await;
+    let _ = trade_stream.place_order(req).await;
     let req = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
         side: Side::Buy,
@@ -107,7 +107,7 @@ async fn test_trade_stream_basic_functionality() {
         .await
         .unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     shutdown_token.cancel();
     trade_stream.close().await.unwrap();
 

@@ -1,13 +1,13 @@
 // binance http工具
 
-pub fn sort_params(params: &mut Vec<(&str, String)>) {
+pub fn sort_params<T>(params: &mut Vec<(&str, T)>) {
     params.sort_by(|a, b| a.0.cmp(b.0));
 }
 
-pub fn encode_params(params: &Vec<(&str, String)>) -> String {
+pub fn encode_params<T: ToString>(params: &Vec<(&str, T)>) -> String {
     params
         .iter()
-        .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+        .map(|(k, v)| format!("{}={}", k, urlencoding::encode(&v.to_string())))
         .collect::<Vec<String>>()
         .join("&")
 }

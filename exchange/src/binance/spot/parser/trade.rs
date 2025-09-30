@@ -453,3 +453,9 @@ impl AccountUpdateRaw {
         }
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct PlaceOrderStreamRaw {
+    pub status: u32,
+    pub result: Option<PlaceOrderRaw>,
+}

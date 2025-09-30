@@ -1,8 +1,8 @@
 use crate::binance::{
     errors::{BinanceError, Result},
     spot::{
-        models::{ExecutionReport, OutboundAccountPosition},
-        parser::AccountUpdateRaw,
+        models::{ExecutionReport, Order, OrderType, OutboundAccountPosition, TimeInForce},
+        parser::{AccountUpdateRaw, PlaceOrderStreamRaw},
         requests::{CancelOrderRequest, PlaceOrderRequest},
         responses::{CancelOrderResponse, PlaceOrderResponse},
     },
@@ -159,8 +159,199 @@ impl TradeStream {
     // 支持websocket下单/撤单等时间延迟敏感操作
     // 普通查询可以走API接口
     pub async fn place_order(&self, req: PlaceOrderRequest) -> Result<PlaceOrderResponse> {
-        unimplemented!()
+        let client = match &self.client {
+            Some(c) => c,
+            None => {
+                return Err(BinanceError::NetworkError {
+                    message: "WebSocket client is not connected".to_string(),
+                })
+            }
+        };
+
+        match &req.r#type {
+            OrderType::Limit => {
+                if req.time_in_force.is_none() || req.price.is_none() || req.quantity.is_none() {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "time_in_force, price, quantity are required for LIMIT order"
+                            .to_string(),
+                    });
+                }
+            }
+            OrderType::Market => {
+                if req.quantity.is_none() {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "quantity is required for MARKET order".to_string(),
+                    });
+                }
+            }
+            OrderType::StopLoss => {
+                if req.quantity.is_none() || req.stop_price.is_none() {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "quantity, stop_price are required for STOP_LOSS order"
+                            .to_string(),
+                    });
+                }
+            }
+            OrderType::StopLossLimit => {
+                if req.time_in_force.is_none()
+                    || req.quantity.is_none()
+                    || req.price.is_none()
+                    || req.stop_price.is_none()
+                {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "time_in_force, quantity, price, stop_price are required for STOP_LOSS_LIMIT order"
+                            .to_string(),
+                    });
+                }
+            }
+            OrderType::TakeProfit => {
+                if req.quantity.is_none() || req.stop_price.is_none() {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "quantity, stop_price are required for TAKE_PROFIT order"
+                            .to_string(),
+                    });
+                }
+            }
+            OrderType::TakeProfitLimit => {
+                if req.time_in_force.is_none()
+                    || req.quantity.is_none()
+                    || req.price.is_none()
+                    || req.stop_price.is_none()
+                {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "time_in_force, quantity, price, stop_price are required for TAKE_PROFIT_LIMIT order"
+                            .to_string(),
+                    });
+                }
+            }
+            OrderType::LimitMaker => {
+                if req.quantity.is_none() || req.price.is_none() {
+                    return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: "quantity, price are required for LIMIT_MAKER order".to_string(),
+                    });
+                }
+            }
+        }
+        if req.iceberg_qty.is_some() {
+            if !matches!(req.r#type, OrderType::Limit | OrderType::LimitMaker) {
+                return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                    message: "iceberg_qty is only valid for LIMIT and LIMIT_MAKER orders"
+                        .to_string(),
+                });
+            }
+            if req.time_in_force.is_none()
+                || !matches!(req.time_in_force.as_ref().unwrap(), TimeInForce::Gtc)
+            {
+                return Err(crate::binance::errors::BinanceError::ParametersInvalid {
+                    message: "time_in_force must be GTC when iceberg_qty is set".to_string(),
+                });
+            }
+        }
+
+        let mut params = vec![
+            ("symbol", serde_json::Value::from(req.symbol.clone())),
+            (
+                "side",
+                serde_json::Value::from(req.side.as_str().to_string()),
+            ),
+            (
+                "type",
+                serde_json::Value::from(req.r#type.as_str().to_string()),
+            ),
+            (
+                "newOrderRespType",
+                serde_json::Value::from("ACK".to_string()),
+            ),
+        ];
+        if req.time_in_force.is_some() {
+            params.push((
+                "timeInForce",
+                serde_json::Value::from(req.time_in_force.as_ref().unwrap().as_str().to_string()),
+            ));
+        }
+        if req.quantity.is_some() {
+            params.push((
+                "quantity",
+                serde_json::Value::from(req.quantity.unwrap().to_string()),
+            ));
+        }
+        if req.price.is_some() {
+            params.push((
+                "price",
+                serde_json::Value::from(req.price.unwrap().to_string()),
+            ));
+        }
+        if req.new_client_order_id.is_some() {
+            params.push((
+                "newClientOrderId",
+                serde_json::Value::from(req.new_client_order_id.as_ref().unwrap().to_string()),
+            ));
+        }
+        if req.stop_price.is_some() {
+            params.push((
+                "stopPrice",
+                serde_json::Value::from(req.stop_price.unwrap().to_string()),
+            ));
+        }
+        if req.iceberg_qty.is_some() {
+            params.push((
+                "icebergQty",
+                serde_json::Value::from(req.iceberg_qty.unwrap().to_string()),
+            ));
+        }
+
+        self.sign_params(&mut params);
+
+        let msg_id = Self::rand_id();
+        let content = serde_json::to_string(&serde_json::json!(
+            {
+                "id": msg_id.clone(),
+                "method": "order.place",
+                "params": params.into_iter().collect::<HashMap<_, _>>(),
+            }
+        ))
+        .unwrap();
+
+        let recv_msg = client
+            .call(SendMsg::Text {
+                msg_id: Some(msg_id),
+                content,
+                weight: Some(1),
+            })
+            .await
+            .map_err(|e| {
+                error!("WebSocket send place order message error: {:?}", e);
+                BinanceError::NetworkError {
+                    message: e.to_string(),
+                }
+            })?;
+
+        match recv_msg {
+            RecvMsg::Text { msg_id: _, content } => {
+                let resp = serde_json::from_str::<PlaceOrderStreamRaw>(&content).map_err(|e| {
+                    error!("Parse place order response error: {:?}", e);
+                    BinanceError::ParseResultError {
+                        message: e.to_string(),
+                    }
+                })?;
+                if resp.status != 200 {
+                    return Err(BinanceError::NetworkError {
+                        message: format!("Place order failed: {:?}", resp),
+                    });
+                }
+                if resp.result.is_none() {
+                    return Err(BinanceError::NetworkError {
+                        message: format!("Place order failed: {:?}", resp),
+                    });
+                }
+                Ok((req, resp.result.unwrap()).into())
+            }
+            _ => Err(BinanceError::NetworkError {
+                message: format!("Unexpected place order response: {:?}", recv_msg),
+            }),
+        }
     }
+
     pub async fn cancel_order(&self, req: CancelOrderRequest) -> Result<CancelOrderResponse> {
         unimplemented!()
     }
@@ -261,5 +452,21 @@ impl TradeStream {
                 return Ok(());
             }
         }
+    }
+
+    fn sign_params(&self, params: &mut Vec<(&str, serde_json::Value)>) {
+        // 添加默认窗口和时间戳参数
+        params.push((
+            "timestamp",
+            serde_json::Value::from(time::get_current_milli_timestamp()),
+        ));
+        params.push(("recvWindow", serde_json::Value::from("5000".to_string())));
+
+        sort_params(params);
+
+        // 添加签名
+        let signature = hmac_sha256(&self.secret_key, encode_params(&params).as_str());
+        params.push(("signature", serde_json::Value::from(signature)));
+        params.push(("apiKey", serde_json::Value::from(self.api_key.clone())));
     }
 }
