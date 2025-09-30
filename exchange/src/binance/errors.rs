@@ -13,6 +13,9 @@ pub enum BinanceError {
 
     #[error(transparent)]
     ExternalError(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("Client error: {message}")]
+    ClientError { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, BinanceError>;
