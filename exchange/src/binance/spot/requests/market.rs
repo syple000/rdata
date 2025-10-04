@@ -105,3 +105,8 @@ pub struct GetDepthRequest {
     pub symbol: String,
     pub limit: Option<u32>,
 }
+
+pub struct GetExchangeInfoRequest {
+    pub symbol: Option<String>,
+    pub symbols: Option<Vec<String>>,
+}

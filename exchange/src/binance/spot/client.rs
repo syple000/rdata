@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use rate_limiter::RateLimiter;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::binance::{
     errors::Result,
@@ -30,6 +31,9 @@ pub struct SpotClient {
     trade_api: Option<trade_api::TradeApi>,
     market_stream: Option<Arc<Mutex<market_stream::MarketStream>>>,
     trade_stream: Option<Arc<Mutex<trade_stream::TradeStream>>>,
+
+    market_stream_shutdown_token: Option<CancellationToken>,
+    trade_stream_shutdown_token: Option<CancellationToken>,
 }
 
 impl SpotClient {
@@ -40,6 +44,8 @@ impl SpotClient {
             trade_api: None,
             market_stream: None,
             trade_stream: None,
+            market_stream_shutdown_token: None,
+            trade_stream_shutdown_token: None,
         }
     }
 
@@ -74,6 +80,26 @@ impl SpotClient {
         self.trade_api = Some(trade_api);
         self.market_stream = Some(Arc::new(Mutex::new(market_stream)));
         self.trade_stream = Some(Arc::new(Mutex::new(trade_stream)));
+        self.market_stream_shutdown_token = Some(market_stream_shutdown_token);
+        self.trade_stream_shutdown_token = Some(trade_stream_shutdown_token);
+        Ok(())
+    }
+
+    pub async fn close(&self) -> Result<()> {
+        if let Some(token) = &self.market_stream_shutdown_token {
+            token.cancel();
+        }
+        if let Some(token) = &self.trade_stream_shutdown_token {
+            token.cancel();
+        }
+        if let Some(market_stream) = self.market_stream.as_ref() {
+            let market_stream = market_stream.lock().await;
+            market_stream.close().await?;
+        }
+        if let Some(trade_stream) = self.trade_stream.as_ref() {
+            let trade_stream = trade_stream.lock().await;
+            trade_stream.close().await?;
+        }
         Ok(())
     }
 }

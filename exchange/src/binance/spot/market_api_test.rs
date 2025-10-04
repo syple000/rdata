@@ -74,3 +74,28 @@ async fn test_market_get_depth() {
     );
     json::dump(&depth, "depth.json").unwrap();
 }
+
+#[tokio::test]
+async fn test_market_get_exchange_info() {
+    let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .is_test(true)
+        .try_init();
+    let market = MarketApi::new(SPOT_BASE_URL.to_string(), None);
+
+    // 测试获取单个交易对的交易规范信息
+    let resp = market
+        .get_exchange_info(GetExchangeInfoRequest {
+            symbol: Some("BTCUSDT".to_string()),
+            symbols: None,
+        })
+        .await;
+
+    assert!(resp.is_ok());
+    let exchange_info = resp.unwrap();
+    assert!(!exchange_info.symbols.is_empty());
+    println!(
+        "Got exchange info with {} symbols",
+        exchange_info.symbols.len()
+    );
+    json::dump(&exchange_info, "exchange_info.json").unwrap();
+}
