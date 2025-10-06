@@ -150,6 +150,13 @@ impl TradeStream {
         Ok(shutdown_token)
     }
 
+    pub async fn get_shutdown_token(&self) -> Option<CancellationToken> {
+        if let Some(client) = &self.client {
+            return client.get_shutdown_token().await;
+        }
+        None
+    }
+
     // 支持websocket下单/撤单等时间延迟敏感操作
     // 普通查询可以走API接口
     pub async fn place_order(&self, req: PlaceOrderRequest) -> Result<PlaceOrderResponse> {

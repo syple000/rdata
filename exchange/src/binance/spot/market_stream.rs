@@ -157,6 +157,13 @@ impl MarketStream {
         Ok(shutdown_token)
     }
 
+    pub async fn get_shutdown_token(&self) -> Option<CancellationToken> {
+        if let Some(client) = &self.client {
+            return client.get_shutdown_token().await;
+        }
+        None
+    }
+
     pub async fn close(&self) -> Result<()> {
         if let Some(client) = &self.client {
             client.disconnect().await.map_err(|e| {
