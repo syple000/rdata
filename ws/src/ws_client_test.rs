@@ -203,15 +203,14 @@ async fn test_basic_connect_and_disconnect() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
 
     // 测试连接
     let result = client.connect().await;
     assert!(result.is_ok(), "Failed to connect: {:?}", result);
 
-    // 验证连接状态
     let token = client.get_shutdown_token().await;
-    assert!(token.is_some(), "Shutdown token should be available");
+    assert!(!token.is_cancelled(), "Shutdown token should be available");
 
     // 测试断开连接
     let result = client.disconnect().await;
@@ -240,7 +239,7 @@ async fn test_send_message() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
 
     // 发送消息
@@ -298,7 +297,7 @@ async fn test_synchronous_call() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
 
     // 发送同步调用
@@ -354,7 +353,7 @@ async fn test_call_timeout() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
 
     let request = json!({
@@ -400,7 +399,7 @@ async fn test_call_without_msg_id() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
 
     let send_msg = SendMsg::Text {
@@ -442,7 +441,7 @@ async fn test_rate_limiter() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
 
     let ts1 = time::get_current_nano_timestamp();
@@ -516,7 +515,7 @@ async fn test_ping_pong_handling() {
         heartbeat_interval: Duration::from_millis(100),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
 
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -540,7 +539,7 @@ async fn test_connection_error() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Client::new(config).unwrap();
+    let mut client = Client::new(config).unwrap();
     let result = client.connect().await;
     assert!(
         result.is_err(),
@@ -625,8 +624,9 @@ async fn test_multiple_concurrent_calls() {
         heartbeat_interval: Duration::from_millis(1000),
     };
 
-    let client = Arc::new(Client::new(config).unwrap());
+    let mut client = Client::new(config).unwrap();
     client.connect().await.unwrap();
+    let client = Arc::new(client);
 
     let mut handles = Vec::new();
 
@@ -661,6 +661,11 @@ async fn test_multiple_concurrent_calls() {
 
     assert_eq!(success_count, 5, "All concurrent calls should succeed");
 
-    client.disconnect().await.unwrap();
+    match Arc::try_unwrap(client) {
+        Ok(mut client) => {
+            client.disconnect().await.unwrap();
+        }
+        Err(_) => panic!("Failed to unwrap Arc<Client>"),
+    };
     server.shutdown();
 }

@@ -203,10 +203,10 @@ impl Config {
 
 pub struct Client {
     config: Config,
-    send_tx: Mutex<Option<Sender<SendMsg>>>,
-    shutdown_token: Mutex<Option<CancellationToken>>,
+    send_tx: Option<Sender<SendMsg>>,
+    shutdown_token: CancellationToken,
     sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
-    join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
+    join_handles: Vec<JoinHandle<Result<()>>>,
 }
 
 impl Client {
@@ -228,20 +228,19 @@ impl Client {
         }
         Ok(Client {
             config,
-            send_tx: Mutex::new(None),
-            shutdown_token: Mutex::new(None),
+            send_tx: None,
+            shutdown_token: CancellationToken::new(),
             sync_call_chs: Arc::new(Mutex::new(HashMap::new())),
-            join_handles: Mutex::new(Vec::new()),
+            join_handles: Vec::new(),
         })
     }
 
     // 外部监控WSClient信号
-    pub async fn get_shutdown_token(&self) -> Option<CancellationToken> {
-        let token_guard = self.shutdown_token.lock().await;
-        token_guard.clone()
+    pub async fn get_shutdown_token(&self) -> CancellationToken {
+        return self.shutdown_token.clone();
     }
 
-    pub async fn connect(&self) -> Result<()> {
+    pub async fn connect(&mut self) -> Result<()> {
         let connect_timeout = self.config.connect_timeout;
         if let Some(proxy_url_str) = self.config.proxy_url.as_ref() {
             let proxy_url = Url::parse(proxy_url_str)
@@ -308,27 +307,18 @@ impl Client {
         }
     }
 
-    async fn initialize_stream<S>(&self, ws_stream: WebSocketStream<S>) -> Result<()>
+    async fn initialize_stream<S>(&mut self, ws_stream: WebSocketStream<S>) -> Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (sender, receiver) = ws_stream.split();
 
-        let shutdown_token = CancellationToken::new();
-        {
-            let mut token_guard = self.shutdown_token.lock().await;
-            *token_guard = Some(shutdown_token.clone());
-        }
-
         let rate_limiters = self.config.rate_limiters.clone();
 
         let (send_tx, send_rx) = channel::<SendMsg>(self.config.send_buf_size);
-        {
-            let mut send_tx_guard = self.send_tx.lock().await;
-            *send_tx_guard = Some(send_tx.clone());
-        }
+        self.send_tx = Some(send_tx.clone());
 
-        let shutdown_token1 = shutdown_token.clone();
+        let shutdown_token1 = self.shutdown_token.clone();
         let send_loop_handle = tokio::spawn(async move {
             Self::send_loop(sender, send_rx, rate_limiters, shutdown_token1).await
         });
@@ -336,7 +326,7 @@ impl Client {
         let calc_recv_msg_id = self.config.calc_recv_msg_id.clone();
         let sync_call_chs = self.sync_call_chs.clone();
         let handle = self.config.handle.clone();
-        let shutdown_token2 = shutdown_token.clone();
+        let shutdown_token2 = self.shutdown_token.clone();
         let send_tx1 = send_tx.clone();
         let recv_loop_handle = tokio::spawn(async move {
             Self::recv_loop(
@@ -351,38 +341,25 @@ impl Client {
         });
 
         let hearbeat_interval = self.config.heartbeat_interval.clone();
-        let shutdown_token3 = shutdown_token.clone();
+        let shutdown_token3 = self.shutdown_token.clone();
         let send_tx2 = send_tx.clone();
         let heartbeat_handle = tokio::spawn(async move {
             Self::heartbeat(send_tx2, hearbeat_interval, shutdown_token3).await
         });
 
-        {
-            let mut join_handles_guard = self.join_handles.lock().await;
-            join_handles_guard.push(send_loop_handle);
-            join_handles_guard.push(recv_loop_handle);
-            join_handles_guard.push(heartbeat_handle);
-        }
+        self.join_handles.push(send_loop_handle);
+        self.join_handles.push(recv_loop_handle);
+        self.join_handles.push(heartbeat_handle);
 
         Ok(())
     }
 
-    pub async fn disconnect(&self) -> Result<()> {
-        {
-            let token_guard = self.shutdown_token.lock().await;
-            if token_guard.is_none() {
-                // 未connect初始化，不需要断连
-                return Ok(());
-            }
-            token_guard.as_ref().unwrap().cancel();
-        }
+    pub async fn disconnect(&mut self) -> Result<()> {
+        self.shutdown_token.cancel();
 
-        {
-            let mut join_handles_guard = self.join_handles.lock().await;
-            for handle in join_handles_guard.drain(..) {
-                if let Err(e) = handle.await {
-                    error!("Task join error: {}", e); // 忽略join错误
-                }
+        for handle in self.join_handles.drain(..) {
+            if let Err(e) = handle.await {
+                error!("Task join error: {}", e);
             }
         }
 
@@ -390,8 +367,7 @@ impl Client {
     }
 
     pub async fn send(&self, msg: SendMsg) -> Result<()> {
-        let send_tx = self.send_tx.lock().await;
-        let send_tx = match send_tx.as_ref() {
+        let send_tx = match self.send_tx.as_ref() {
             Some(tx) => tx,
             None => return Err(WsError::disconnected()),
         };
@@ -409,18 +385,8 @@ impl Client {
 
         let (resp_tx, mut resp_rx) = channel::<RecvMsg>(1);
 
-        let shutdown_token: CancellationToken;
         {
-            let shutdown_token_guard = self.shutdown_token.lock().await;
-            shutdown_token = match shutdown_token_guard.as_ref() {
-                Some(token) => token.clone(),
-                None => return Err(WsError::disconnected()),
-            };
-        }
-
-        {
-            let send_tx = self.send_tx.lock().await;
-            let send_tx = match send_tx.as_ref() {
+            let send_tx = match self.send_tx.as_ref() {
                 Some(tx) => tx,
                 None => return Err(WsError::disconnected()),
             };
@@ -448,7 +414,7 @@ impl Client {
             resp = resp_rx.recv() => { // 接收响应，永远不会主动关闭
                 return Ok(resp.unwrap());
             }
-            _ = shutdown_token.cancelled() => {
+            _ = self.shutdown_token.cancelled() => {
                 let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
                 sync_call_chs_guard.remove(&msg_id);
                 return Err(WsError::disconnected());
