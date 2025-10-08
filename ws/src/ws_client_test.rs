@@ -212,10 +212,6 @@ async fn test_basic_connect_and_disconnect() {
     let token = client.get_shutdown_token().await;
     assert!(!token.is_cancelled(), "Shutdown token should be available");
 
-    // 测试断开连接
-    let result = client.disconnect().await;
-    assert!(result.is_ok(), "Failed to disconnect: {:?}", result);
-
     server.shutdown();
 }
 
@@ -272,7 +268,6 @@ async fn test_send_message() {
         _ => panic!("Expected text message, got {:?}", client_messages[0]),
     }
 
-    client.disconnect().await.unwrap();
     server.shutdown();
 }
 
@@ -329,7 +324,6 @@ async fn test_synchronous_call() {
         _ => panic!("Expected text response"),
     }
 
-    client.disconnect().await.unwrap();
     server.shutdown();
 }
 
@@ -376,7 +370,6 @@ async fn test_call_timeout() {
     assert!(elapsed < Duration::from_millis(700)); // 允许一些误差
     assert!(matches!(result.unwrap_err(), WsError::Client { .. }));
 
-    client.disconnect().await.unwrap();
     server.shutdown();
 }
 
@@ -412,7 +405,6 @@ async fn test_call_without_msg_id() {
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), WsError::Client { .. }));
 
-    client.disconnect().await.unwrap();
     server.shutdown();
 }
 
@@ -492,7 +484,6 @@ async fn test_rate_limiter() {
         "Server should receive at least 3 messages"
     );
 
-    client.disconnect().await.unwrap();
     server.shutdown();
 }
 
@@ -520,7 +511,6 @@ async fn test_ping_pong_handling() {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    client.disconnect().await.unwrap();
     server.shutdown();
 }
 
@@ -661,11 +651,5 @@ async fn test_multiple_concurrent_calls() {
 
     assert_eq!(success_count, 5, "All concurrent calls should succeed");
 
-    match Arc::try_unwrap(client) {
-        Ok(mut client) => {
-            client.disconnect().await.unwrap();
-        }
-        Err(_) => panic!("Failed to unwrap Arc<Client>"),
-    };
     server.shutdown();
 }

@@ -354,18 +354,6 @@ impl Client {
         Ok(())
     }
 
-    pub async fn disconnect(&mut self) -> Result<()> {
-        self.shutdown_token.cancel();
-
-        for handle in self.join_handles.drain(..) {
-            if let Err(e) = handle.await {
-                error!("Task join error: {}", e);
-            }
-        }
-
-        Ok(())
-    }
-
     pub async fn send(&self, msg: SendMsg) -> Result<()> {
         let send_tx = match self.send_tx.as_ref() {
             Some(tx) => tx,
@@ -571,6 +559,17 @@ impl Client {
                     }
                 }
             }
+        }
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        if !self.shutdown_token.is_cancelled() {
+            self.shutdown_token.cancel();
+        }
+        for handle in self.join_handles.drain(..) {
+            handle.abort();
         }
     }
 }
