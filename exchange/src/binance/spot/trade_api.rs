@@ -16,8 +16,9 @@ use rate_limiter::RateLimiter;
 use std::sync::Arc;
 
 pub struct TradeApi {
-    client: reqwest::Client,
+    client: Option<reqwest::Client>,
     base_url: String,
+    proxy_url: Option<String>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     api_key: String,
     secret_key: String,
@@ -26,17 +27,50 @@ pub struct TradeApi {
 impl TradeApi {
     pub fn new(
         base_url: String,
+        proxy_url: Option<String>,
         rate_limiters: Option<Arc<Vec<RateLimiter>>>,
         api_key: String,
         secret_key: String,
     ) -> Self {
         TradeApi {
-            client: reqwest::Client::new(),
+            client: None,
             base_url,
+            proxy_url,
             rate_limiters: rate_limiters,
             api_key,
             secret_key,
         }
+    }
+
+    pub fn init(&mut self) -> Result<()> {
+        let client_builder = reqwest::Client::builder();
+
+        let client = if let Some(proxy_url) = &self.proxy_url {
+            client_builder
+                .proxy(reqwest::Proxy::all(proxy_url).map_err(|e| {
+                    crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: format!("proxy url invalid: {}, error: {}", proxy_url, e),
+                    }
+                })?)
+                .build()
+                .map_err(
+                    |e| crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: format!(
+                            "build client with proxy url: {} failed: {}",
+                            proxy_url, e
+                        ),
+                    },
+                )?
+        } else {
+            client_builder.build().map_err(|e| {
+                crate::binance::errors::BinanceError::ParametersInvalid {
+                    message: format!("build client failed: {}", e),
+                }
+            })?
+        };
+
+        self.client = Some(client);
+        Ok(())
     }
 
     pub async fn place_order(&self, req: PlaceOrderRequest) -> Result<PlaceOrderResponse> {
@@ -459,6 +493,13 @@ impl TradeApi {
         mut params: Vec<(&str, String)>,
         weight: u64,
     ) -> Result<String> {
+        if let None = &self.client {
+            return Err(BinanceError::ParametersInvalid {
+                message: "client is not initialized, please call init() first".to_string(),
+            });
+        }
+        let client = self.client.as_ref().unwrap();
+
         // 添加默认窗口和时间戳参数
         params.push(("timestamp", time::get_current_milli_timestamp().to_string()));
         params.push(("recvWindow", "5000".to_string()));
@@ -477,7 +518,7 @@ impl TradeApi {
 
         let resp = match method {
             reqwest::Method::GET => {
-                self.client
+                client
                     .get(format!("{}{}", self.base_url, endpoint).as_str())
                     .header("X-MBX-APIKEY", self.api_key.clone())
                     .query(&params)
@@ -485,7 +526,7 @@ impl TradeApi {
                     .await
             }
             reqwest::Method::POST => {
-                self.client
+                client
                     .post(format!("{}{}", self.base_url, endpoint).as_str())
                     .header("X-MBX-APIKEY", self.api_key.clone())
                     .query(&params)
@@ -493,7 +534,7 @@ impl TradeApi {
                     .await
             }
             reqwest::Method::DELETE => {
-                self.client
+                client
                     .delete(format!("{}{}", self.base_url, endpoint).as_str())
                     .header("X-MBX-APIKEY", self.api_key.clone())
                     .query(&params)
@@ -508,7 +549,7 @@ impl TradeApi {
         };
 
         let resp = resp.map_err(|e| crate::binance::errors::BinanceError::NetworkError {
-            message: e.to_string(),
+            message: format!("send request error: {}", e),
         })?;
 
         if resp.status() != reqwest::StatusCode::OK {

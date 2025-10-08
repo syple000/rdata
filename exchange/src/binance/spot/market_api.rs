@@ -10,18 +10,55 @@ use rate_limiter::RateLimiter;
 use std::sync::Arc;
 
 pub struct MarketApi {
-    client: reqwest::Client,
+    client: Option<reqwest::Client>,
     base_url: String,
+    proxy_url: Option<String>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
 }
 
 impl MarketApi {
-    pub fn new(base_url: String, rate_limiters: Option<Arc<Vec<RateLimiter>>>) -> Self {
+    pub fn new(
+        base_url: String,
+        proxy_url: Option<String>,
+        rate_limiters: Option<Arc<Vec<RateLimiter>>>,
+    ) -> Self {
         MarketApi {
-            client: reqwest::Client::new(),
+            client: None,
             base_url,
+            proxy_url,
             rate_limiters: rate_limiters,
         }
+    }
+
+    pub fn init(&mut self) -> Result<()> {
+        let client_builder = reqwest::Client::builder();
+
+        let client = if let Some(proxy_url) = &self.proxy_url {
+            client_builder
+                .proxy(reqwest::Proxy::all(proxy_url).map_err(|e| {
+                    crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: format!("proxy url invalid: {}, error: {}", proxy_url, e),
+                    }
+                })?)
+                .build()
+                .map_err(
+                    |e| crate::binance::errors::BinanceError::ParametersInvalid {
+                        message: format!(
+                            "build client with proxy url: {} failed: {}",
+                            proxy_url, e
+                        ),
+                    },
+                )?
+        } else {
+            client_builder.build().map_err(|e| {
+                crate::binance::errors::BinanceError::ParametersInvalid {
+                    message: format!("build client failed: {}", e),
+                }
+            })?
+        };
+
+        self.client = Some(client);
+        Ok(())
     }
 
     pub async fn get_klines(&self, req: GetKlinesRequest) -> Result<GetKlinesResponse> {
@@ -234,6 +271,13 @@ impl MarketApi {
         mut params: Vec<(&str, String)>,
         weight: u64,
     ) -> Result<String> {
+        if let None = &self.client {
+            return Err(BinanceError::ParametersInvalid {
+                message: "client is not initialized, please call init() first".to_string(),
+            });
+        }
+        let client = self.client.as_ref().unwrap();
+
         sort_params(&mut params);
 
         if let Some(rate_limiters) = &self.rate_limiters {
@@ -244,21 +288,21 @@ impl MarketApi {
 
         let resp = match method {
             reqwest::Method::GET => {
-                self.client
+                client
                     .get(format!("{}{}", self.base_url, endpoint))
                     .query(&params)
                     .send()
                     .await
             }
             reqwest::Method::POST => {
-                self.client
+                client
                     .post(format!("{}{}", self.base_url, endpoint))
                     .form(&params)
                     .send()
                     .await
             }
             reqwest::Method::DELETE => {
-                self.client
+                client
                     .delete(format!("{}{}", self.base_url, endpoint))
                     .query(&params)
                     .send()

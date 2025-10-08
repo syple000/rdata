@@ -1,14 +1,31 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use super::super::consts::*;
 use super::market_api::MarketApi;
 use super::requests::market::*;
 use env_logger::Env;
+use rate_limiter::RateLimiter;
 
-#[tokio::test]
-async fn test_market_get_klines() {
+fn setup_test_market_api() -> MarketApi {
     let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .is_test(true)
         .try_init();
-    let market = MarketApi::new(SPOT_BASE_URL.to_string(), None);
+
+    let rate_limiter = RateLimiter::new(Duration::from_secs(60), 1200); // 1200 requests per minute
+
+    let mut api = MarketApi::new(
+        SPOT_BASE_URL.to_string(),
+        Some("socks5://127.0.0.1:10808".to_string()),
+        Some(Arc::new(vec![rate_limiter])),
+    );
+    api.init().unwrap();
+    api
+}
+
+#[tokio::test]
+async fn test_market_get_klines() {
+    let market = setup_test_market_api();
     let resp = market
         .get_klines(GetKlinesRequest {
             symbol: "BTCUSDT".to_string(),
@@ -25,10 +42,7 @@ async fn test_market_get_klines() {
 
 #[tokio::test]
 async fn test_market_get_agg_trades() {
-    let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .is_test(true)
-        .try_init();
-    let market = MarketApi::new(SPOT_BASE_URL.to_string(), None);
+    let market = setup_test_market_api();
 
     // 测试获取最近的归集交易
     let resp = market
@@ -50,10 +64,7 @@ async fn test_market_get_agg_trades() {
 
 #[tokio::test]
 async fn test_market_get_depth() {
-    let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .is_test(true)
-        .try_init();
-    let market = MarketApi::new(SPOT_BASE_URL.to_string(), None);
+    let market = setup_test_market_api();
 
     // 测试获取深度信息
     let resp = market
@@ -77,10 +88,7 @@ async fn test_market_get_depth() {
 
 #[tokio::test]
 async fn test_market_get_exchange_info() {
-    let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .is_test(true)
-        .try_init();
-    let market = MarketApi::new(SPOT_BASE_URL.to_string(), None);
+    let market = setup_test_market_api();
 
     // 测试获取单个交易对的交易规范信息
     let resp = market

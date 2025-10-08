@@ -16,12 +16,16 @@ fn setup_test_trade_api() -> TradeApi {
 
     let rate_limiter = RateLimiter::new(Duration::from_secs(60), 1200); // 1200 requests per minute
 
-    TradeApi::new(
+    let mut api = TradeApi::new(
         TEST_SPOT_BASE_URL.to_string(),
+        // None,
+        Some("socks5://127.0.0.1:10808".to_string()),
         Some(Arc::new(vec![rate_limiter])),
         TEST_SPOT_API_KEY.to_string(),
         TEST_SPOT_SECRET_KEY.to_string(),
-    )
+    );
+    api.init().unwrap();
+    api
 }
 
 #[tokio::test]
