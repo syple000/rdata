@@ -98,7 +98,6 @@ async fn test_trade_stream() {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     shutdown_token.cancel();
-    trade_stream.close().await.unwrap();
 
     let outbound_account_positions = outbound_account_positions.lock().await;
     json::dump(

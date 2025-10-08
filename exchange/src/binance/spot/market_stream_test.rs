@@ -34,7 +34,6 @@ async fn test_market_stream_depth_update() {
 
     market_stream.init().await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-    market_stream.close().await.unwrap();
 
     let depth_updates = depth_updates.lock().await;
     assert!(!depth_updates.is_empty());
@@ -69,7 +68,6 @@ async fn test_market_stream_agg_trade() {
 
     market_stream.init().await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-    market_stream.close().await.unwrap();
 
     let agg_trades = agg_trades.lock().await;
     assert!(!agg_trades.is_empty());

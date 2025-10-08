@@ -83,7 +83,7 @@ impl TradeStream {
         config.proxy_url = self.proxy_url.clone();
         config.rate_limiters = self.rate_limiters.clone();
 
-        let ws_client = ws::Client::new(config).map_err(|e| {
+        let mut ws_client = ws::Client::new(config).map_err(|e| {
             error!("WebSocket client error: {:?}", e);
             BinanceError::ExternalError(Box::new(e))
         })?;
@@ -144,17 +144,17 @@ impl TradeStream {
             }
         }
 
-        let shutdown_token = ws_client.get_shutdown_token().await.unwrap();
+        let shutdown_token = ws_client.get_shutdown_token().await;
         self.client = Some(ws_client);
 
         Ok(shutdown_token)
     }
 
-    pub async fn get_shutdown_token(&self) -> Option<CancellationToken> {
-        if let Some(client) = &self.client {
-            return client.get_shutdown_token().await;
+    pub async fn get_ws_shutdown_token(&self) -> Option<CancellationToken> {
+        match &self.client {
+            None => None,
+            Some(client) => Some(client.get_shutdown_token().await),
         }
-        None
     }
 
     // 支持websocket下单/撤单等时间延迟敏感操作
@@ -408,18 +408,6 @@ impl TradeStream {
                 message: format!("Unexpected cancel order response: {:?}", recv_msg),
             }),
         }
-    }
-
-    pub async fn close(&self) -> Result<()> {
-        if let Some(client) = &self.client {
-            client.disconnect().await.map_err(|e| {
-                error!("WebSocket close error: {:?}", e);
-                BinanceError::NetworkError {
-                    message: e.to_string(),
-                }
-            })?;
-        }
-        Ok(())
     }
 
     fn rand_id() -> String {
