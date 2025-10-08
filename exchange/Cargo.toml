@@ -24,4 +24,4 @@ rand = "0.9.2"
 log = "0.4.28"
 env_logger = "0.11.8"
 tokio-util = "0.7.16"
-
+arc-swap = "1.7.1"
