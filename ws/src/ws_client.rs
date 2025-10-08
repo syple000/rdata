@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_socks::tcp::Socks5Stream;
 use tokio_tungstenite::{client_async, connect_async, tungstenite::Message, WebSocketStream};
@@ -205,7 +205,7 @@ pub struct Client {
     config: Config,
     send_tx: Option<Sender<SendMsg>>,
     shutdown_token: CancellationToken,
-    sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
+    sync_call_chs: Arc<RwLock<HashMap<String, Sender<RecvMsg>>>>,
     join_handles: Vec<JoinHandle<Result<()>>>,
 }
 
@@ -230,7 +230,7 @@ impl Client {
             config,
             send_tx: None,
             shutdown_token: CancellationToken::new(),
-            sync_call_chs: Arc::new(Mutex::new(HashMap::new())),
+            sync_call_chs: Arc::new(RwLock::new(HashMap::new())),
             join_handles: Vec::new(),
         })
     }
@@ -390,7 +390,7 @@ impl Client {
                 Some(tx) => tx,
                 None => return Err(WsError::disconnected()),
             };
-            let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
+            let mut sync_call_chs_guard = self.sync_call_chs.write().await;
             if sync_call_chs_guard.contains_key(&msg_id) {
                 return Err(WsError::duplicated_message_id(msg_id));
             }
@@ -407,15 +407,17 @@ impl Client {
         let timeout = self.config.call_timeout.clone();
         tokio::select! {
             _ = tokio::time::sleep(timeout) => {
-                let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
+                let mut sync_call_chs_guard = self.sync_call_chs.write().await;
                 sync_call_chs_guard.remove(&msg_id);
                 return Err(WsError::call_timeout(msg_id.clone(), timeout));
             }
-            resp = resp_rx.recv() => { // 接收响应，永远不会主动关闭
+            resp = resp_rx.recv() => {
+                let mut sync_call_chs_guard = self.sync_call_chs.write().await;
+                sync_call_chs_guard.remove(&msg_id);
                 return Ok(resp.unwrap());
             }
             _ = self.shutdown_token.cancelled() => {
-                let mut sync_call_chs_guard = self.sync_call_chs.lock().await;
+                let mut sync_call_chs_guard = self.sync_call_chs.write().await;
                 sync_call_chs_guard.remove(&msg_id);
                 return Err(WsError::disconnected());
             }
@@ -425,7 +427,7 @@ impl Client {
     async fn recv_loop<S>(
         mut receiver: SplitStream<WebSocketStream<S>>,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-        sync_call_chs: Arc<Mutex<HashMap<String, Sender<RecvMsg>>>>,
+        sync_call_chs: Arc<RwLock<HashMap<String, Sender<RecvMsg>>>>,
         handle: Arc<
             dyn Fn(RecvMsg) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync,
         >,
@@ -460,11 +462,9 @@ impl Client {
                         match &recv_msg {
                             RecvMsg::Text { .. } | RecvMsg::Binary { .. } => {
                                 let mut ch: Option<Sender<RecvMsg>> = None;
-                                {
-                                    let mut sync_call_chs_guard = sync_call_chs.lock().await;
-                                    if let Some(msg_id) = recv_msg.msg_id() {
-                                        ch = sync_call_chs_guard.remove(&msg_id);
-                                    }
+                                if let Some(msg_id) = recv_msg.msg_id() {
+                                    let sync_call_chs_guard = sync_call_chs.read().await;
+                                    ch = sync_call_chs_guard.get(&msg_id).cloned();
                                 }
                                 if let Some(ch) = ch {
                                     if let Err(e) = ch.send(recv_msg).await {
