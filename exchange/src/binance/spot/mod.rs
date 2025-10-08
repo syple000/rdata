@@ -2,6 +2,9 @@ pub mod models;
 pub mod requests;
 pub mod responses;
 
+mod depth;
+mod kline;
+
 mod market_api;
 #[cfg(test)]
 mod market_api_test;
