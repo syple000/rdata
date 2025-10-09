@@ -4,6 +4,7 @@ pub mod responses;
 
 mod depth;
 mod kline;
+mod trade;
 
 mod market_api;
 #[cfg(test)]

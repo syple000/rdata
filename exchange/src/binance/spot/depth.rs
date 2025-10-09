@@ -20,7 +20,7 @@ struct DepthStat {
     timestamp: u64,
 }
 
-struct Depth {
+pub struct Depth {
     symbol: String,
     stat: RwLock<Option<DepthStat>>,
     is_updated: AtomicBool,
@@ -28,7 +28,7 @@ struct Depth {
 }
 
 impl Depth {
-    fn new(symbol: String) -> Self {
+    pub fn new(symbol: String) -> Self {
         Self {
             symbol: symbol.clone(),
             stat: RwLock::new(None),
@@ -37,7 +37,7 @@ impl Depth {
         }
     }
 
-    async fn get_depth(&self) -> Arc<Option<DepthData>> {
+    pub async fn get_depth(&self) -> Arc<Option<DepthData>> {
         if !self.is_updated.load(Ordering::Relaxed) {
             return self.depth_data.load_full();
         }
@@ -68,7 +68,7 @@ impl Depth {
         return self.depth_data.load_full();
     }
 
-    async fn update_by_depth(&self, depth: DepthData) -> Result<()> {
+    pub async fn update_by_depth(&self, depth: &DepthData) -> Result<()> {
         if self.symbol != depth.symbol {
             return Err(crate::binance::errors::BinanceError::ClientError {
                 message: "Depth symbol mismatch".to_string(),
@@ -77,11 +77,11 @@ impl Depth {
 
         let mut bids = HashMap::new();
         let mut asks = HashMap::new();
-        for bid in depth.bids {
-            bids.insert(bid.price.clone(), bid);
+        for bid in depth.bids.iter() {
+            bids.insert(bid.price.clone(), bid.clone());
         }
-        for ask in depth.asks {
-            asks.insert(ask.price.clone(), ask);
+        for ask in depth.asks.iter() {
+            asks.insert(ask.price.clone(), ask.clone());
         }
 
         let mut stat = self.stat.write().await;
@@ -96,7 +96,7 @@ impl Depth {
         Ok(())
     }
 
-    async fn update_by_depth_update(&self, update: DepthUpdate) -> Result<()> {
+    pub async fn update_by_depth_update(&self, update: &DepthUpdate) -> Result<()> {
         if self.symbol != update.symbol {
             return Err(crate::binance::errors::BinanceError::ClientError {
                 message: "Depth update symbol mismatch".to_string(),
@@ -116,18 +116,18 @@ impl Depth {
         }
 
         if update.first_update_id <= stat.last_update_id + 1 {
-            for bid in update.bids {
+            for bid in update.bids.iter() {
                 if bid.quantity.is_zero() {
                     stat.bids.remove(&bid.price);
                 } else {
-                    stat.bids.insert(bid.price.clone(), bid);
+                    stat.bids.insert(bid.price.clone(), bid.clone());
                 }
             }
-            for ask in update.asks {
+            for ask in update.asks.iter() {
                 if ask.quantity.is_zero() {
                     stat.asks.remove(&ask.price);
                 } else {
-                    stat.asks.insert(ask.price.clone(), ask);
+                    stat.asks.insert(ask.price.clone(), ask.clone());
                 }
             }
             stat.last_update_id = update.last_update_id;
