@@ -76,6 +76,17 @@ impl OrderStatus {
             _ => None,
         }
     }
+
+    pub fn is_final(&self) -> bool {
+        matches!(
+            self,
+            OrderStatus::Filled
+                | OrderStatus::Canceled
+                | OrderStatus::Rejected
+                | OrderStatus::Expired
+                | OrderStatus::ExpiredInMatch
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

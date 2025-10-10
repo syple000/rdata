@@ -467,6 +467,7 @@ dependencies = [
  "rate_limiter",
  "reqwest",
  "rust_decimal",
+ "scopeguard",
  "serde",
  "serde_json",
  "sha2",

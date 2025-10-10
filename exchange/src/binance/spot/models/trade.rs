@@ -80,6 +80,46 @@ pub struct ExecutionReport {
     pub iceberg_qty: Decimal,
 }
 
+impl ExecutionReport {
+    pub fn to_order(&self) -> Order {
+        Order {
+            order_id: self.order_id,
+            client_order_id: self.client_order_id.clone(),
+            symbol: self.symbol.clone(),
+            order_side: self.order_side.clone(),
+            order_type: self.order_type.clone(),
+            order_quantity: self.order_quantity,
+            order_price: self.order_price,
+            executed_qty: self.cumulative_filled_qty,
+            cummulative_quote_qty: self.cumulative_quote_qty,
+            order_status: self.order_status.clone(),
+            time_in_force: self.time_in_force.clone(),
+            stop_price: self.stop_price,
+            iceberg_qty: self.iceberg_qty,
+            create_time: self.create_time,
+            update_time: self.transaction_time,
+        }
+    }
+
+    pub fn to_trade(&self) -> Option<Trade> {
+        if self.trade_id == 0 {
+            return None;
+        }
+        Some(Trade {
+            trade_id: self.trade_id,
+            order_id: self.order_id,
+            symbol: self.symbol.clone(),
+            order_side: self.order_side.clone(),
+            trade_price: self.last_executed_price,
+            trade_quantity: self.last_executed_qty,
+            commission: self.commission,
+            commission_asset: self.commission_asset.clone(),
+            is_maker: self.is_maker,
+            timestamp: self.transaction_time,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundAccountPosition {
     pub balances: Vec<Balance>,
