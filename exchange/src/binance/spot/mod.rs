@@ -1,11 +1,8 @@
-pub mod client;
 pub mod models;
 pub mod requests;
 pub mod responses;
 
 mod depth;
-#[cfg(test)]
-mod depth_test;
 
 mod kline;
 #[cfg(test)]

@@ -3,9 +3,20 @@ use crate::binance::{
     spot::models::{AggTrade, KlineData},
 };
 use arc_swap::ArcSwap;
+use csv::{Writer, WriterBuilder};
+use log::{error, warn};
 use rust_decimal::Decimal;
-use std::{collections::VecDeque, sync::Arc};
-use tokio::sync::RwLock;
+use std::{
+    collections::VecDeque,
+    fs::OpenOptions,
+    path::Path,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+use time::get_current_milli_timestamp;
+use tokio::sync::{Mutex, RwLock};
 
 #[derive(Clone)]
 struct BuildingStat {
@@ -19,36 +30,38 @@ pub struct Kline {
     symbol: String,
     interval: u64,
 
-    max_building_cnt: usize, // 最大正确构建数限制，会强制归档更早的kline
-    overload_ratio: usize, // 超过最大正确构建数的多少倍时，强制归档更早的kline。根据更新/读取频率自定义调整
-    building: RwLock<VecDeque<BuildingStat>>,
-    max_archived_cnt: usize, // 归档的最大数量
-    archived: ArcSwap<VecDeque<Arc<KlineData>>>,
+    max_building_cache_cnt: usize, // 长时间未手动进行归档，在触发容量阈值后，自动归档
+    target_building_cache_cnt: usize, // 归档时，将数据长度缩减到该值
+    building_klines: RwLock<VecDeque<BuildingStat>>,
+    max_archived_cache_cnt: usize,
+    latest_archived_kline_time: AtomicU64,
+    archived_klines: ArcSwap<VecDeque<Arc<KlineData>>>,
+    archived_csv: Mutex<Writer<std::fs::File>>,
 }
 
 pub struct KlineView {
-    archived: Arc<VecDeque<Arc<KlineData>>>,
-    building: VecDeque<Arc<KlineData>>,
+    archived_klines: Arc<VecDeque<Arc<KlineData>>>,
+    building_klines: VecDeque<Arc<KlineData>>,
 }
 
 impl KlineView {
     pub fn iter(&self) -> impl Iterator<Item = &KlineData> {
-        self.archived
+        self.archived_klines
             .iter()
-            .chain(self.building.iter())
+            .chain(self.building_klines.iter())
             .map(|k| k.as_ref())
     }
 
     pub fn klines(&self) -> Vec<Arc<KlineData>> {
-        self.archived
+        self.archived_klines
             .iter()
-            .chain(self.building.iter())
+            .chain(self.building_klines.iter())
             .cloned()
             .collect()
     }
 
     pub fn len(&self) -> usize {
-        self.archived.len() + self.building.len()
+        self.archived_klines.len() + self.building_klines.len()
     }
 }
 
@@ -56,26 +69,44 @@ impl Kline {
     pub fn new(
         symbol: String,
         interval: u64,
-        max_building_cnt: usize,
-        overload_ratio: usize,
-        max_archived_cnt: usize,
-    ) -> Self {
-        Self {
+        max_building_cache_cnt: usize,
+        target_building_cache_cnt: usize,
+        max_archived_cache_cnt: usize,
+    ) -> Result<Self> {
+        let csv_file = format!(
+            "{}_trades_{}.csv",
+            symbol,
+            get_current_milli_timestamp().to_string()
+        );
+        let path = Path::new(&csv_file);
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|e| crate::binance::errors::BinanceError::ClientError {
+                message: format!("Failed to new Trade, open CSV file fail: {}", e),
+            })?;
+        let csv_writer = WriterBuilder::new().has_headers(true).from_writer(file);
+
+        Ok(Self {
             symbol,
             interval,
-            max_building_cnt,
-            overload_ratio,
-            building: RwLock::new(VecDeque::with_capacity(max_building_cnt)),
-            max_archived_cnt,
-            archived: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cnt)),
-        }
+            max_building_cache_cnt,
+            target_building_cache_cnt,
+            building_klines: RwLock::new(VecDeque::with_capacity(max_building_cache_cnt)),
+            max_archived_cache_cnt,
+            latest_archived_kline_time: AtomicU64::new(0),
+            archived_klines: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cache_cnt)),
+            archived_csv: Mutex::new(csv_writer),
+        })
     }
 
     pub async fn get_klines(&self) -> KlineView {
         KlineView {
-            archived: self.archived.load_full(),
-            building: self
-                .building
+            archived_klines: self.archived_klines.load_full(),
+            building_klines: self
+                .building_klines
                 .read()
                 .await
                 .iter()
@@ -84,24 +115,50 @@ impl Kline {
         }
     }
 
-    pub async fn archive(&self) {
-        let building_klines = self.building.read().await;
-        if building_klines.len() <= self.max_building_cnt * self.overload_ratio {
+    pub async fn archive(&self, archived_kline_time: u64) {
+        if archived_kline_time <= self.latest_archived_kline_time.load(Ordering::Relaxed) {
             return;
         }
-        drop(building_klines);
 
-        let mut building_klines = self.building.write().await;
-        let mut archived_ptr = self.archived.load_full();
-        let archived = Arc::make_mut(&mut archived_ptr);
-        while building_klines.len() > self.max_building_cnt {
-            let kline = building_klines.pop_front().unwrap();
-            archived.push_back(kline.kline.clone());
-            if archived.len() > self.max_archived_cnt {
-                archived.pop_front();
+        let mut building_klines = self.building_klines.write().await;
+
+        self.latest_archived_kline_time
+            .store(archived_kline_time, Ordering::Release);
+
+        let mut to_archive_klines = vec![];
+        loop {
+            let front = building_klines.front();
+            if front.is_none() {
+                break;
             }
+            let front = front.unwrap();
+            if front.kline.open_time > archived_kline_time {
+                break;
+            }
+            let front = building_klines.pop_front().unwrap();
+            to_archive_klines.push(front.kline);
         }
-        self.archived.store(archived_ptr);
+
+        if to_archive_klines.is_empty() {
+            return;
+        }
+
+        let mut archived_klines_ptr = self.archived_klines.load_full();
+        let archived_klines = Arc::make_mut(&mut archived_klines_ptr);
+        let mut archived_csv = self.archived_csv.lock().await;
+        for kline in to_archive_klines {
+            if let Err(e) = archived_csv.serialize(&*kline) {
+                error!("Failed to archive kline to csv, serialize error: {}", e);
+            }
+            if archived_klines.len() >= self.max_archived_cache_cnt {
+                archived_klines.pop_front().unwrap();
+            }
+            archived_klines.push_back(kline);
+        }
+        self.archived_klines.store(archived_klines_ptr);
+        if let Err(e) = archived_csv.flush() {
+            error!("Failed to archive kline to csv, flush error: {}", e);
+        }
     }
 
     pub async fn update_by_kline(&self, kline: &KlineData) -> Result<()> {
@@ -121,7 +178,7 @@ impl Kline {
             });
         }
 
-        let mut building_klines = self.building.write().await;
+        let mut building_klines = self.building_klines.write().await;
 
         let mut index = 0;
         if let Some(front) = building_klines.front() {
@@ -168,7 +225,18 @@ impl Kline {
         building_klines.push_back(stat);
         drop(building_klines);
 
-        self.archive().await;
+        if kline
+            .open_time
+            .saturating_sub(self.latest_archived_kline_time.load(Ordering::Relaxed))
+            >= self.max_building_cache_cnt as u64 * self.interval
+        {
+            warn!(
+                "Kline building cache cnt exceed max {}, archive to {}",
+                self.max_building_cache_cnt, self.target_building_cache_cnt
+            );
+            self.archive(kline.open_time - self.target_building_cache_cnt as u64 * self.interval)
+                .await;
+        }
 
         Ok(())
     }
@@ -180,7 +248,7 @@ impl Kline {
             });
         }
 
-        let mut building_klines = self.building.write().await;
+        let mut building_klines = self.building_klines.write().await;
         let mut index = 0;
         if let Some(front) = building_klines.front() {
             if trade.timestamp < front.kline.open_time {
@@ -268,7 +336,16 @@ impl Kline {
         });
         drop(building_klines);
 
-        self.archive().await;
+        if open_time.saturating_sub(self.latest_archived_kline_time.load(Ordering::Relaxed))
+            >= self.max_building_cache_cnt as u64 * self.interval
+        {
+            warn!(
+                "Kline building cache cnt exceed max {}, archive to {}",
+                self.max_building_cache_cnt, self.target_building_cache_cnt
+            );
+            self.archive(open_time - self.target_building_cache_cnt as u64 * self.interval)
+                .await;
+        }
 
         Ok(())
     }

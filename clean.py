@@ -5,7 +5,7 @@ def clean_files(root_dir=None):
     if root_dir is None:
         root_dir = os.path.dirname(os.path.abspath(__file__))
 
-    patterns = ["*.json"]
+    patterns = ["*.json", "*.csv"]
 
     for dirpath, _, filenames in os.walk(root_dir):
         if 'target' in dirpath:

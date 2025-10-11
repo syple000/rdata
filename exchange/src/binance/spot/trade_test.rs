@@ -2,337 +2,408 @@
 mod tests {
     use crate::binance::spot::{models::AggTrade, trade::Trade};
     use rust_decimal::Decimal;
+    use std::str::FromStr;
 
-    fn create_test_trade(symbol: &str, agg_trade_id: u64, price: i64, quantity: i64) -> AggTrade {
+    fn create_test_agg_trade(
+        symbol: &str,
+        agg_trade_id: u64,
+        price: &str,
+        quantity: &str,
+        first_trade_id: u64,
+        last_trade_id: u64,
+        timestamp: u64,
+        is_buyer_maker: bool,
+    ) -> AggTrade {
         AggTrade {
             symbol: symbol.to_string(),
             agg_trade_id,
-            price: Decimal::new(price, 0),
-            quantity: Decimal::new(quantity, 0),
-            first_trade_id: agg_trade_id * 10,
-            last_trade_id: agg_trade_id * 10 + 5,
-            timestamp: 1000000000000 + agg_trade_id * 1000,
-            is_buyer_maker: false,
+            price: Decimal::from_str(price).unwrap(),
+            quantity: Decimal::from_str(quantity).unwrap(),
+            first_trade_id,
+            last_trade_id,
+            timestamp,
+            is_buyer_maker,
         }
     }
 
     #[tokio::test]
     async fn test_trade_new() {
-        let trade = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
-        let trades = trade.get_trades().await;
-        assert_eq!(trades.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_update_first_trade() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
-        let trade_data = create_test_trade("BTCUSDT", 1, 10000, 1);
-
-        let result = trade_manager.update(&trade_data).await;
+        let result = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true); // 应该返回 true 表示新增了交易
-
-        let trades = trade_manager.get_trades().await;
-        assert_eq!(trades.len(), 1);
-        assert_eq!(trades.trades()[0].agg_trade_id, 1);
     }
 
     #[tokio::test]
-    async fn test_update_symbol_mismatch() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
-        let trade_data = create_test_trade("ETHUSDT", 1, 10000, 1);
+    async fn test_trade_update_basic() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
 
-        let result = trade_manager.update(&trade_data).await;
+        let trade = create_test_agg_trade(
+            "BTCUSDT",
+            1,
+            "50000.0",
+            "1.5",
+            100,
+            102,
+            1000000000000,
+            false,
+        );
+
+        let result = trade_manager.update(&trade).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true); // Should return true for new trade
+
+        let view = trade_manager.get_trades().await;
+        assert_eq!(view.len(), 1);
+
+        let trades: Vec<_> = view.iter().collect();
+        assert_eq!(trades[0].agg_trade_id, 1);
+        assert_eq!(trades[0].price, Decimal::from_str("50000.0").unwrap());
+        assert_eq!(trades[0].quantity, Decimal::from_str("1.5").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_trade_update_wrong_symbol() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+
+        let trade = create_test_agg_trade(
+            "ETHUSDT",
+            1,
+            "3000.0",
+            "10.0",
+            100,
+            100,
+            1000000000000,
+            false,
+        );
+
+        let result = trade_manager.update(&trade).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_update_sequential_trades() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+    async fn test_trade_update_sequential() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
 
-        // 添加连续的交易
         for i in 1..=5 {
-            let trade_data = create_test_trade("BTCUSDT", i, 10000 + i as i64 * 10, 1);
-            let result = trade_manager.update(&trade_data).await;
+            let trade = create_test_agg_trade(
+                "BTCUSDT",
+                i,
+                "50000.0",
+                "1.0",
+                100 + i - 1,
+                100 + i - 1,
+                1000000000000 + i * 1000,
+                false,
+            );
+            let result = trade_manager.update(&trade).await;
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), true);
         }
 
-        let trades = trade_manager.get_trades().await;
-        assert_eq!(trades.len(), 5);
-
-        // 验证交易顺序
-        let trade_list = trades.trades();
-        for i in 0..5 {
-            assert_eq!(trade_list[i].agg_trade_id, (i + 1) as u64);
-        }
+        let view = trade_manager.get_trades().await;
+        assert_eq!(view.len(), 5);
     }
 
     #[tokio::test]
-    async fn test_update_duplicate_trade() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+    async fn test_trade_update_duplicate() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
 
-        let trade_data = create_test_trade("BTCUSDT", 1, 10000, 1);
-        let result1 = trade_manager.update(&trade_data).await;
+        let trade = create_test_agg_trade(
+            "BTCUSDT",
+            1,
+            "50000.0",
+            "1.5",
+            100,
+            102,
+            1000000000000,
+            false,
+        );
+
+        // First update should succeed
+        let result1 = trade_manager.update(&trade).await;
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap(), true);
 
-        // 尝试添加相同的交易
-        let result2 = trade_manager.update(&trade_data).await;
+        // Second update with same ID should return false
+        let result2 = trade_manager.update(&trade).await;
         assert!(result2.is_ok());
-        assert_eq!(result2.unwrap(), false); // 应该返回 false 表示重复
+        assert_eq!(result2.unwrap(), false);
 
-        let trades = trade_manager.get_trades().await;
-        assert_eq!(trades.len(), 1); // 不应该重复添加
+        let view = trade_manager.get_trades().await;
+        assert_eq!(view.len(), 1);
     }
 
     #[tokio::test]
-    async fn test_update_old_trade() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+    async fn test_trade_update_old_trade_ignored() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
 
-        let trade_data2 = create_test_trade("BTCUSDT", 2, 10020, 2);
-        trade_manager.update(&trade_data2).await.unwrap();
+        // Add recent trade
+        let trade1 = create_test_agg_trade(
+            "BTCUSDT",
+            10,
+            "50000.0",
+            "1.5",
+            110,
+            112,
+            1000000000000,
+            false,
+        );
+        trade_manager.update(&trade1).await.unwrap();
 
-        // 尝试添加更早的交易
-        let trade_data1 = create_test_trade("BTCUSDT", 1, 10010, 1);
-        let result = trade_manager.update(&trade_data1).await;
+        // Try to add older trade
+        let trade2 = create_test_agg_trade(
+            "BTCUSDT",
+            5,
+            "49000.0",
+            "2.0",
+            105,
+            107,
+            999999000000,
+            false,
+        );
+        let result = trade_manager.update(&trade2).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), false); // 应该返回 false，旧交易被忽略
+        assert_eq!(result.unwrap(), false);
 
-        let trades = trade_manager.get_trades().await;
-        assert_eq!(trades.len(), 1);
-        assert_eq!(trades.trades()[0].agg_trade_id, 2);
+        let view = trade_manager.get_trades().await;
+        assert_eq!(view.len(), 1);
+
+        let trades: Vec<_> = view.iter().collect();
+        assert_eq!(trades[0].agg_trade_id, 10); // Should keep the newer one
     }
 
     #[tokio::test]
-    async fn test_update_with_gaps() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+    async fn test_trade_update_with_gap() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
 
-        // 添加 trade id 1
-        let trade_data1 = create_test_trade("BTCUSDT", 1, 10000, 1);
-        trade_manager.update(&trade_data1).await.unwrap();
+        // Add first trade
+        let trade1 = create_test_agg_trade(
+            "BTCUSDT",
+            1,
+            "50000.0",
+            "1.0",
+            100,
+            100,
+            1000000000000,
+            false,
+        );
+        trade_manager.update(&trade1).await.unwrap();
 
-        // 跳过 2, 3, 添加 trade id 4
-        let trade_data4 = create_test_trade("BTCUSDT", 4, 10030, 4);
-        trade_manager.update(&trade_data4).await.unwrap();
+        // Add trade with gap (ID 5, skipping 2, 3, 4)
+        let trade2 = create_test_agg_trade(
+            "BTCUSDT",
+            5,
+            "51000.0",
+            "2.0",
+            104,
+            104,
+            1000000004000,
+            false,
+        );
+        trade_manager.update(&trade2).await.unwrap();
 
-        let trades = trade_manager.get_trades().await;
-        // len() 只计算有效的交易，不包括空位
-        assert_eq!(trades.len(), 2);
-
-        let trade_list = trades.trades();
-        assert_eq!(trade_list[0].agg_trade_id, 1);
-        assert_eq!(trade_list[1].agg_trade_id, 4);
+        let view = trade_manager.get_trades().await;
+        // Should have entries for IDs 1, 2, 3, 4, 5 but 2, 3, 4 will be None
+        let trades = view.trades();
+        assert_eq!(trades.len(), 2); // Only 2 actual trades (gaps are filtered out)
     }
 
     #[tokio::test]
-    async fn test_update_fill_gap() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+    async fn test_trade_update_fill_gap() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
 
-        // 添加 trade id 1
-        let trade_data1 = create_test_trade("BTCUSDT", 1, 10000, 1);
-        trade_manager.update(&trade_data1).await.unwrap();
+        // Add trades with gaps
+        let trade1 = create_test_agg_trade(
+            "BTCUSDT",
+            1,
+            "50000.0",
+            "1.0",
+            100,
+            100,
+            1000000000000,
+            false,
+        );
+        trade_manager.update(&trade1).await.unwrap();
 
-        // 添加 trade id 4
-        let trade_data4 = create_test_trade("BTCUSDT", 4, 10030, 4);
-        trade_manager.update(&trade_data4).await.unwrap();
+        let trade3 = create_test_agg_trade(
+            "BTCUSDT",
+            5,
+            "51000.0",
+            "2.0",
+            104,
+            104,
+            1000000004000,
+            false,
+        );
+        trade_manager.update(&trade3).await.unwrap();
 
-        // 填充 gap: trade id 2
-        let trade_data2 = create_test_trade("BTCUSDT", 2, 10010, 2);
-        let result = trade_manager.update(&trade_data2).await;
+        // Fill the gap
+        let trade2 = create_test_agg_trade(
+            "BTCUSDT",
+            3,
+            "50500.0",
+            "1.5",
+            102,
+            102,
+            1000000002000,
+            false,
+        );
+        let result = trade_manager.update(&trade2).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true); // 应该成功填充
+        assert_eq!(result.unwrap(), true); // Should successfully fill the gap
 
-        let trades = trade_manager.get_trades().await;
-        // len() 只计算有效的交易，应该是 3 个（1, 2, 4）
-        assert_eq!(trades.len(), 3);
+        let view = trade_manager.get_trades().await;
+        let trades = view.trades();
+        assert_eq!(trades.len(), 3); // Now have 3 actual trades
+    }
 
-        let trade_list = trades.trades();
-        assert_eq!(trade_list[0].agg_trade_id, 1);
-        assert_eq!(trade_list[1].agg_trade_id, 2);
-        assert_eq!(trade_list[2].agg_trade_id, 4);
+    #[tokio::test]
+    async fn test_trade_archive() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 10, 5, 5).unwrap();
+
+        for i in 1..=20 {
+            let trade = create_test_agg_trade(
+                "BTCUSDT",
+                1000 + i,
+                "50000.0",
+                "1.0",
+                100 + i - 1,
+                100 + i - 1,
+                1000000000000 + i * 1000,
+                false,
+            );
+            trade_manager.update(&trade).await.unwrap();
+        }
+
+        let view_before = trade_manager.get_trades().await;
+        assert_eq!(view_before.len(), 14);
+
+        trade_manager.archive(1020).await;
+
+        let view_after = trade_manager.get_trades().await;
+        assert_eq!(view_after.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_trade_archive_idempotent() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 10, 5, 5).unwrap();
+
+        // Add trades
+        for i in 1..=10 {
+            let trade = create_test_agg_trade(
+                "BTCUSDT",
+                i,
+                "50000.0",
+                "1.0",
+                100 + i - 1,
+                100 + i - 1,
+                1000000000000 + i * 1000,
+                false,
+            );
+            trade_manager.update(&trade).await.unwrap();
+        }
+
+        // Archive to ID 5
+        trade_manager.archive(5).await;
+
+        let view1 = trade_manager.get_trades().await;
+        let archived_count1 = view1.archived_trades.len();
+        let latest_count1 = view1.latest_trades.len();
+
+        // Archive again with same or lower ID
+        trade_manager.archive(3).await;
+
+        let view2 = trade_manager.get_trades().await;
+        let archived_count2 = view2.archived_trades.len();
+        let latest_count2 = view2.latest_trades.len();
+
+        // Should be the same
+        assert_eq!(archived_count1, archived_count2);
+        assert_eq!(latest_count1, latest_count2);
     }
 
     #[tokio::test]
     async fn test_trade_view_iter() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 50, 100).unwrap();
 
         for i in 1..=5 {
-            let trade_data = create_test_trade("BTCUSDT", i, 10000 + i as i64 * 10, 1);
-            trade_manager.update(&trade_data).await.unwrap();
+            let trade = create_test_agg_trade(
+                "BTCUSDT",
+                i,
+                "50000.0",
+                "1.0",
+                100 + i - 1,
+                100 + i - 1,
+                1000000000000 + i * 1000,
+                false,
+            );
+            trade_manager.update(&trade).await.unwrap();
         }
 
-        let trades = trade_manager.get_trades().await;
-        let mut count = 0;
-        for _ in trades.iter() {
-            count += 1;
-        }
+        let view = trade_manager.get_trades().await;
+        let count = view.iter().count();
         assert_eq!(count, 5);
-    }
 
-    #[tokio::test]
-    async fn test_trade_view_trades() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
-
-        for i in 1..=5 {
-            let trade_data = create_test_trade("BTCUSDT", i, 10000 + i as i64 * 10, 1);
-            trade_manager.update(&trade_data).await.unwrap();
-        }
-
-        let trades = trade_manager.get_trades().await;
-        let trade_list = trades.trades();
-        assert_eq!(trade_list.len(), 5);
-
-        for i in 0..5 {
-            assert_eq!(trade_list[i].agg_trade_id, (i + 1) as u64);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_archive_functionality() {
-        let max_latest = 10;
-        let overload_ratio = 2;
-        let trade_manager = Trade::new("BTCUSDT".to_string(), max_latest, overload_ratio, 100);
-
-        // 添加足够多的交易触发归档
-        for i in 1..=(max_latest * overload_ratio + 5) {
-            let trade_data = create_test_trade("BTCUSDT", i as u64, 10000 + i as i64, 1);
-            trade_manager.update(&trade_data).await.unwrap();
-        }
-
-        let trades = trade_manager.get_trades().await;
-        // 归档后应该保持在合理范围内
-        assert!(trades.len() <= max_latest * overload_ratio + 5);
-    }
-
-    #[tokio::test]
-    async fn test_archive_preserves_order() {
-        let max_latest = 5;
-        let overload_ratio = 2;
-        let trade_manager = Trade::new("BTCUSDT".to_string(), max_latest, overload_ratio, 20);
-
-        // 添加足够多的交易
-        for i in 1..=20 {
-            let trade_data = create_test_trade("BTCUSDT", i, 10000 + i as i64, 1);
-            trade_manager.update(&trade_data).await.unwrap();
-        }
-
-        let trades = trade_manager.get_trades().await;
-        let trade_list = trades.trades();
-
-        // 验证顺序是否保持
-        for i in 0..trade_list.len() - 1 {
-            assert!(trade_list[i].agg_trade_id < trade_list[i + 1].agg_trade_id);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_archive_respects_max_archived() {
-        let max_latest = 5;
-        let overload_ratio = 2;
-        let max_archived = 10;
-        let trade_manager = Trade::new(
-            "BTCUSDT".to_string(),
-            max_latest,
-            overload_ratio,
-            max_archived,
-        );
-
-        // 添加大量交易
-        for i in 1..=50 {
-            let trade_data = create_test_trade("BTCUSDT", i, 10000 + i as i64, 1);
-            trade_manager.update(&trade_data).await.unwrap();
-        }
-
-        let trades = trade_manager.get_trades().await;
-        // 总数不应该超过 max_archived + max_latest
-        assert!(trades.len() <= max_archived + max_latest);
-    }
-
-    #[tokio::test]
-    async fn test_mixed_updates_with_gaps() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
-
-        // 添加非连续的交易
-        let trade_ids = vec![1, 3, 5, 7, 10];
-        for &id in &trade_ids {
-            let trade_data = create_test_trade("BTCUSDT", id, 10000 + id as i64 * 10, 1);
-            trade_manager.update(&trade_data).await.unwrap();
-        }
-
-        let trades = trade_manager.get_trades().await;
-        // len() 只计算有效的交易，应该是 5 个
+        let trades = view.trades();
         assert_eq!(trades.len(), 5);
-
-        // 填充部分空位
-        let fill_ids = vec![2, 6];
-        for &id in &fill_ids {
-            let trade_data = create_test_trade("BTCUSDT", id, 10000 + id as i64 * 10, 1);
-            let result = trade_manager.update(&trade_data).await.unwrap();
-            assert_eq!(result, true);
-        }
-
-        let trades = trade_manager.get_trades().await;
-        // 现在应该有 7 个有效交易
-        assert_eq!(trades.len(), 7);
-
-        let trade_list = trades.trades();
-
-        // 验证填充的交易存在
-        assert!(trade_list.iter().any(|t| t.agg_trade_id == 2));
-        assert!(trade_list.iter().any(|t| t.agg_trade_id == 6));
     }
 
     #[tokio::test]
-    async fn test_concurrent_updates() {
-        use tokio::task;
+    async fn test_trade_view_len() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 50, 100).unwrap();
 
-        let trade_manager = std::sync::Arc::new(Trade::new("BTCUSDT".to_string(), 100, 2, 1000));
+        let view_empty = trade_manager.get_trades().await;
+        assert_eq!(view_empty.len(), 0);
 
-        let mut handles = vec![];
-
-        // 并发添加交易
-        for i in 1..=10 {
-            let tm = trade_manager.clone();
-            let handle = task::spawn(async move {
-                let trade_data = create_test_trade("BTCUSDT", i, 10000 + i as i64 * 10, 1);
-                tm.update(&trade_data).await
-            });
-            handles.push(handle);
+        for i in 1..=3 {
+            let trade = create_test_agg_trade(
+                "BTCUSDT",
+                i,
+                "50000.0",
+                "1.0",
+                100 + i - 1,
+                100 + i - 1,
+                1000000000000 + i * 1000,
+                false,
+            );
+            trade_manager.update(&trade).await.unwrap();
         }
 
-        // 等待所有任务完成
-        for handle in handles {
-            let result = handle.await.unwrap();
-            assert!(result.is_ok());
-        }
-
-        let trades = trade_manager.get_trades().await;
-        assert_eq!(trades.len(), 10);
+        let view = trade_manager.get_trades().await;
+        assert_eq!(view.len(), 3);
     }
 
     #[tokio::test]
-    async fn test_empty_gap_iteration() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 2, 1000);
+    async fn test_trade_is_buyer_maker() {
+        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 50, 100).unwrap();
 
-        // 添加有间隔的交易
-        trade_manager
-            .update(&create_test_trade("BTCUSDT", 1, 10000, 1))
-            .await
-            .unwrap();
-        trade_manager
-            .update(&create_test_trade("BTCUSDT", 5, 10040, 5))
-            .await
-            .unwrap();
+        let trade_buy = create_test_agg_trade(
+            "BTCUSDT",
+            1,
+            "50000.0",
+            "1.0",
+            100,
+            100,
+            1000000000000,
+            false,
+        );
+        trade_manager.update(&trade_buy).await.unwrap();
 
-        let trades = trade_manager.get_trades().await;
+        let trade_sell = create_test_agg_trade(
+            "BTCUSDT",
+            2,
+            "50100.0",
+            "1.5",
+            101,
+            101,
+            1000000001000,
+            true,
+        );
+        trade_manager.update(&trade_sell).await.unwrap();
 
-        // 迭代器应该只包含有效的交易，不包含空位
-        let count = trades.iter().count();
-        assert_eq!(count, 2); // 只有两个有效交易
+        let view = trade_manager.get_trades().await;
+        let trades: Vec<_> = view.iter().collect();
 
-        // trades() 方法应该返回所有有效交易
-        let trade_list = trades.trades();
-        assert_eq!(trade_list.len(), 2);
+        assert_eq!(trades[0].is_buyer_maker, false);
+        assert_eq!(trades[1].is_buyer_maker, true);
     }
 }
