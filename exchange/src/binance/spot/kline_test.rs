@@ -54,13 +54,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_new() {
-        let result = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000);
+        let result = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        );
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_kline_update_by_kline_basic() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let kline_data = create_test_kline_data(
             "BTCUSDT",
@@ -86,7 +101,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_update_by_kline_wrong_symbol() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let kline_data = create_test_kline_data(
             "ETHUSDT",
@@ -105,7 +128,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_update_by_kline_wrong_interval() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let kline_data = create_test_kline_data(
             "BTCUSDT",
@@ -124,7 +155,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_update_by_kline_sequential() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add first kline
         let kline1 = create_test_kline_data(
@@ -154,11 +193,23 @@ mod tests {
 
         let view = kline_manager.get_klines().await;
         assert_eq!(view.len(), 2);
+        assert_eq!(
+            view.iter().rev().collect::<Vec<_>>()[0].open_time,
+            1000000080000
+        );
     }
 
     #[tokio::test]
     async fn test_kline_update_by_trade_basic() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade = create_test_agg_trade("BTCUSDT", 1, "50000.0", "1.5", 100, 102, 1000000000000);
 
@@ -179,7 +230,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_update_by_trade_multiple_in_same_interval() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade1 = create_test_agg_trade(
             "BTCUSDT",
@@ -228,7 +287,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_update_by_trade_wrong_symbol() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade = create_test_agg_trade("ETHUSDT", 1, "3000.0", "10.0", 100, 100, 1000000000000);
 
@@ -238,7 +305,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_archive() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 10, 5, 5).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            10,
+            5,
+            5,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         for i in 0..20 {
             let kline = create_test_kline_data(
@@ -265,7 +340,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_view_iter() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 100, 50, 100).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            100,
+            50,
+            100,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         for i in 0..5 {
             let kline = create_test_kline_data(
@@ -291,7 +374,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_gap_filling() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add first kline
         let kline1 = create_test_kline_data(
@@ -325,7 +416,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_kline_old_data_ignored() {
-        let kline_manager = Kline::new("BTCUSDT".to_string(), 60000, 1000, 500, 5000).unwrap();
+        let kline_manager = Kline::new(
+            "BTCUSDT".to_string(),
+            60000,
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add recent kline
         let kline1 = create_test_kline_data(

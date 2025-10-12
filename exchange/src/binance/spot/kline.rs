@@ -3,20 +3,16 @@ use crate::binance::{
     spot::models::{AggTrade, KlineData},
 };
 use arc_swap::ArcSwap;
-use csv::{Writer, WriterBuilder};
-use log::{error, warn};
+use log::warn;
 use rust_decimal::Decimal;
 use std::{
     collections::VecDeque,
-    fs::OpenOptions,
-    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
 };
-use time::get_current_milli_timestamp;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 struct BuildingStat {
@@ -36,7 +32,7 @@ pub struct Kline {
     max_archived_cache_cnt: usize,
     latest_archived_kline_time: AtomicU64,
     archived_klines: ArcSwap<VecDeque<Arc<KlineData>>>,
-    archived_csv: Mutex<Writer<std::fs::File>>,
+    db_tree: sled::Tree,
 }
 
 pub struct KlineView {
@@ -45,7 +41,7 @@ pub struct KlineView {
 }
 
 impl KlineView {
-    pub fn iter(&self) -> impl Iterator<Item = &KlineData> {
+    pub fn iter(&self) -> impl Iterator<Item = &KlineData> + DoubleEndedIterator + '_ {
         self.archived_klines
             .iter()
             .chain(self.building_klines.iter())
@@ -72,22 +68,13 @@ impl Kline {
         max_building_cache_cnt: usize,
         target_building_cache_cnt: usize,
         max_archived_cache_cnt: usize,
+        db: &sled::Db,
     ) -> Result<Self> {
-        let csv_file = format!(
-            "{}_trades_{}.csv",
-            symbol,
-            get_current_milli_timestamp().to_string()
-        );
-        let path = Path::new(&csv_file);
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)
-            .map_err(|e| crate::binance::errors::BinanceError::ClientError {
-                message: format!("Failed to new Trade, open CSV file fail: {}", e),
-            })?;
-        let csv_writer = WriterBuilder::new().has_headers(true).from_writer(file);
+        let db_tree = db.open_tree(format!("{}_kline", symbol)).map_err(|e| {
+            crate::binance::errors::BinanceError::ClientError {
+                message: format!("Failed to new Kline, open sled tree fail: {}", e),
+            }
+        })?;
 
         Ok(Self {
             symbol,
@@ -98,7 +85,7 @@ impl Kline {
             max_archived_cache_cnt,
             latest_archived_kline_time: AtomicU64::new(0),
             archived_klines: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cache_cnt)),
-            archived_csv: Mutex::new(csv_writer),
+            db_tree,
         })
     }
 
@@ -145,20 +132,19 @@ impl Kline {
 
         let mut archived_klines_ptr = self.archived_klines.load_full();
         let archived_klines = Arc::make_mut(&mut archived_klines_ptr);
-        let mut archived_csv = self.archived_csv.lock().await;
+        let mut batch = sled::Batch::default();
         for kline in to_archive_klines {
-            if let Err(e) = archived_csv.serialize(&*kline) {
-                error!("Failed to archive kline to csv, serialize error: {}", e);
-            }
+            batch.insert(
+                kline.open_time.to_string().as_bytes(),
+                serde_json::to_string(&*kline).unwrap().as_bytes(),
+            );
             if archived_klines.len() >= self.max_archived_cache_cnt {
                 archived_klines.pop_front().unwrap();
             }
             archived_klines.push_back(kline);
         }
         self.archived_klines.store(archived_klines_ptr);
-        if let Err(e) = archived_csv.flush() {
-            error!("Failed to archive kline to csv, flush error: {}", e);
-        }
+        self.db_tree.apply_batch(batch).unwrap();
     }
 
     pub async fn update_by_kline(&self, kline: &KlineData) -> Result<()> {

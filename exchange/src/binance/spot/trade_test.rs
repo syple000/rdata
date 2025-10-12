@@ -28,13 +28,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_new() {
-        let result = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000);
+        let result = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        );
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_trade_update_basic() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade = create_test_agg_trade(
             "BTCUSDT",
@@ -62,7 +75,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_update_wrong_symbol() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade = create_test_agg_trade(
             "ETHUSDT",
@@ -81,7 +101,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_update_sequential() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         for i in 1..=5 {
             let trade = create_test_agg_trade(
@@ -105,7 +132,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_update_duplicate() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade = create_test_agg_trade(
             "BTCUSDT",
@@ -134,7 +168,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_update_old_trade_ignored() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add recent trade
         let trade1 = create_test_agg_trade(
@@ -173,7 +214,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_update_with_gap() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add first trade
         let trade1 = create_test_agg_trade(
@@ -209,7 +257,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_update_fill_gap() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 1000, 500, 5000).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            1000,
+            500,
+            5000,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add trades with gaps
         let trade1 = create_test_agg_trade(
@@ -258,7 +313,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_archive() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 10, 5, 5).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            10,
+            5,
+            5,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         for i in 1..=20 {
             let trade = create_test_agg_trade(
@@ -285,7 +347,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_archive_idempotent() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 10, 5, 5).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            10,
+            5,
+            5,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         // Add trades
         for i in 1..=10 {
@@ -323,7 +392,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_view_iter() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 50, 100).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            100,
+            50,
+            100,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         for i in 1..=5 {
             let trade = create_test_agg_trade(
@@ -349,7 +425,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_view_len() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 50, 100).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            100,
+            50,
+            100,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let view_empty = trade_manager.get_trades().await;
         assert_eq!(view_empty.len(), 0);
@@ -374,7 +457,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trade_is_buyer_maker() {
-        let trade_manager = Trade::new("BTCUSDT".to_string(), 100, 50, 100).unwrap();
+        let trade_manager = Trade::new(
+            "BTCUSDT".to_string(),
+            100,
+            50,
+            100,
+            &sled::Config::default().temporary(true).open().unwrap(),
+        )
+        .unwrap();
 
         let trade_buy = create_test_agg_trade(
             "BTCUSDT",

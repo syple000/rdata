@@ -1,18 +1,14 @@
 use crate::binance::{errors::Result, spot::models::AggTrade};
 use arc_swap::ArcSwap;
-use csv::{Writer, WriterBuilder};
-use log::{error, warn};
+use log::warn;
 use std::{
     collections::VecDeque,
-    fs::OpenOptions,
-    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
 };
-use time::get_current_milli_timestamp;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 struct TradeStat {
     id: u64,
@@ -29,7 +25,7 @@ pub struct Trade {
     max_archived_cache_cnt: usize,
     latest_archived_trade_id: AtomicU64,
     archived_trades: ArcSwap<VecDeque<Arc<AggTrade>>>,
-    archived_csv: Mutex<Writer<std::fs::File>>,
+    db_tree: sled::Tree,
 }
 
 pub struct TradeView {
@@ -38,7 +34,7 @@ pub struct TradeView {
 }
 
 impl TradeView {
-    pub fn iter(&self) -> impl Iterator<Item = &AggTrade> {
+    pub fn iter(&self) -> impl Iterator<Item = &AggTrade> + DoubleEndedIterator + '_ {
         self.archived_trades
             .iter()
             .chain(self.latest_trades.iter())
@@ -64,25 +60,13 @@ impl Trade {
         max_latest_cache_cnt: usize,
         target_latest_cache_cnt: usize,
         max_archived_cache_cnt: usize,
+        db: &sled::Db,
     ) -> Result<Self> {
-        let csv_file = format!(
-            "{}_trades_{}.csv",
-            symbol,
-            get_current_milli_timestamp().to_string()
-        );
-        let path = Path::new(&csv_file);
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)
-            .map_err(|e| crate::binance::errors::BinanceError::ClientError {
-                message: format!(
-                    "Failed to new Trade, open CSV file fail: {}, {}",
-                    e, csv_file
-                ),
-            })?;
-        let csv_writer = WriterBuilder::new().has_headers(true).from_writer(file);
+        let db_tree = db.open_tree(format!("{}_trade", symbol)).map_err(|e| {
+            crate::binance::errors::BinanceError::ClientError {
+                message: format!("Failed to new Trade, open sled tree fail: {}", e),
+            }
+        })?;
 
         Ok(Self {
             symbol: symbol.clone(),
@@ -92,7 +76,7 @@ impl Trade {
             latest_archived_trade_id: AtomicU64::new(0),
             latest_trades: RwLock::new(VecDeque::with_capacity(max_latest_cache_cnt)),
             archived_trades: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cache_cnt)),
-            archived_csv: Mutex::new(csv_writer),
+            db_tree,
         })
     }
 
@@ -143,20 +127,19 @@ impl Trade {
 
         let mut archived_trades_ptr = self.archived_trades.load_full();
         let archived_trades = Arc::make_mut(&mut archived_trades_ptr);
-        let mut archived_csv = self.archived_csv.lock().await;
+        let mut batch = sled::Batch::default();
         for trade in to_archive_trades {
-            if let Err(e) = archived_csv.serialize(&*trade) {
-                error!("Failed to archive trade to CSV, serialize fail: {}", e);
-            }
+            batch.insert(
+                trade.agg_trade_id.to_string().as_bytes(),
+                serde_json::to_string(&*trade).unwrap().as_bytes(),
+            );
             if archived_trades.len() >= self.max_archived_cache_cnt {
                 archived_trades.pop_front().unwrap();
             }
             archived_trades.push_back(trade.clone());
         }
         self.archived_trades.store(archived_trades_ptr);
-        if let Err(e) = archived_csv.flush() {
-            error!("Failed to archive trade to CSV, flush fail: {}", e);
-        }
+        self.db_tree.apply_batch(batch).unwrap();
     }
 
     pub async fn update(&self, trade: &AggTrade) -> Result<bool> {
