@@ -1,16 +1,15 @@
 use crate::{Result, WsError};
+use dashmap::DashMap;
 use futures_util::stream::{SplitSink, SplitStream, StreamExt};
 use futures_util::SinkExt;
 use log::{self, error, info};
 use rate_limiter::RateLimiter;
 use scopeguard::defer;
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_socks::tcp::Socks5Stream;
 use tokio_tungstenite::{client_async, connect_async, tungstenite::Message, WebSocketStream};
@@ -205,7 +204,7 @@ pub struct Client {
     config: Config,
     send_tx: Option<Sender<SendMsg>>,
     shutdown_token: CancellationToken,
-    sync_call_chs: Arc<RwLock<HashMap<String, Sender<RecvMsg>>>>,
+    sync_call_chs: Arc<DashMap<String, Sender<RecvMsg>>>,
     join_handles: Vec<JoinHandle<Result<()>>>,
 }
 
@@ -230,7 +229,7 @@ impl Client {
             config,
             send_tx: None,
             shutdown_token: CancellationToken::new(),
-            sync_call_chs: Arc::new(RwLock::new(HashMap::new())),
+            sync_call_chs: Arc::new(DashMap::new()),
             join_handles: Vec::new(),
         })
     }
@@ -378,13 +377,12 @@ impl Client {
                 Some(tx) => tx,
                 None => return Err(WsError::disconnected()),
             };
-            let mut sync_call_chs_guard = self.sync_call_chs.write().await;
-            if sync_call_chs_guard.contains_key(&msg_id) {
+            if self.sync_call_chs.contains_key(&msg_id) {
                 return Err(WsError::duplicated_message_id(msg_id));
             }
-            sync_call_chs_guard.insert(msg_id.clone(), resp_tx);
+            self.sync_call_chs.insert(msg_id.clone(), resp_tx);
             if let Err(e) = send_tx.send(msg).await {
-                sync_call_chs_guard.remove(&msg_id);
+                self.sync_call_chs.remove(&msg_id);
                 return Err(WsError::channel_closed(
                     "send_tx".to_string(),
                     e.to_string(),
@@ -395,18 +393,15 @@ impl Client {
         let timeout = self.config.call_timeout.clone();
         tokio::select! {
             _ = tokio::time::sleep(timeout) => {
-                let mut sync_call_chs_guard = self.sync_call_chs.write().await;
-                sync_call_chs_guard.remove(&msg_id);
+                self.sync_call_chs.remove(&msg_id);
                 return Err(WsError::call_timeout(msg_id.clone(), timeout));
             }
             resp = resp_rx.recv() => {
-                let mut sync_call_chs_guard = self.sync_call_chs.write().await;
-                sync_call_chs_guard.remove(&msg_id);
+                self.sync_call_chs.remove(&msg_id);
                 return Ok(resp.unwrap());
             }
             _ = self.shutdown_token.cancelled() => {
-                let mut sync_call_chs_guard = self.sync_call_chs.write().await;
-                sync_call_chs_guard.remove(&msg_id);
+                self.sync_call_chs.remove(&msg_id);
                 return Err(WsError::disconnected());
             }
         }
@@ -415,7 +410,7 @@ impl Client {
     async fn recv_loop<S>(
         mut receiver: SplitStream<WebSocketStream<S>>,
         calc_recv_msg_id: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-        sync_call_chs: Arc<RwLock<HashMap<String, Sender<RecvMsg>>>>,
+        sync_call_chs: Arc<DashMap<String, Sender<RecvMsg>>>,
         handle: Arc<
             dyn Fn(RecvMsg) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync,
         >,
@@ -451,8 +446,7 @@ impl Client {
                             RecvMsg::Text { .. } | RecvMsg::Binary { .. } => {
                                 let mut ch: Option<Sender<RecvMsg>> = None;
                                 if let Some(msg_id) = recv_msg.msg_id() {
-                                    let sync_call_chs_guard = sync_call_chs.read().await;
-                                    ch = sync_call_chs_guard.get(&msg_id).cloned();
+                                    ch = sync_call_chs.get(&msg_id).map(|entry| entry.value().clone());
                                 }
                                 if let Some(ch) = ch {
                                     if let Err(e) = ch.send(recv_msg).await {
