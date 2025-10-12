@@ -61,6 +61,8 @@ impl KlineView {
     }
 }
 
+// 来源1：api获取kline（针对特定interval）初始化过去大时间范围kline时使用
+// 来源2：trade.rs中的更新trade。在trade进行归档时，归档kline
 impl Kline {
     pub fn new(
         symbol: String,

@@ -2,7 +2,7 @@ pub mod models;
 pub mod requests;
 pub mod responses;
 
-mod symbol_trade;
+mod symbol_trading;
 
 mod depth;
 #[cfg(test)]

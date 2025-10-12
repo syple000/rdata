@@ -15,6 +15,8 @@ struct TradeStat {
     trade: Option<Arc<AggTrade>>,
 }
 
+// 来源1：websocket推送
+// 来源2：api获取（从latest_archived_trade_id开始获取，如果该值不存在，获取最新的trades，使用最新的trade id更新latest_archived_trade_id）
 pub struct Trade {
     symbol: String,
 
@@ -78,6 +80,15 @@ impl Trade {
             archived_trades: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cache_cnt)),
             db_tree,
         })
+    }
+
+    pub fn get_latest_archived_trade_id(&self) -> Option<u64> {
+        let id = self.latest_archived_trade_id.load(Ordering::Relaxed);
+        if id == 0 {
+            None
+        } else {
+            Some(id)
+        }
     }
 
     pub async fn get_trades(&self) -> TradeView {

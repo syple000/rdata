@@ -32,7 +32,7 @@ pub struct Depth {
 
 impl Depth {
     pub fn new(symbol: String, db: &sled::Db) -> Result<Self> {
-        let db_tree = db.open_tree(format!("depth_{}", symbol)).map_err(|e| {
+        let db_tree = db.open_tree(format!("{}_depth", symbol)).map_err(|e| {
             crate::binance::errors::BinanceError::ClientError {
                 message: format!("Failed to open sled tree for depth {}: {}", symbol, e),
             }
