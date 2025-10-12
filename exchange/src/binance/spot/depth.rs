@@ -11,6 +11,7 @@ use std::{
         Arc,
     },
 };
+use time::get_current_milli_timestamp;
 use tokio::sync::RwLock;
 
 struct DepthStat {
@@ -25,16 +26,24 @@ pub struct Depth {
     stat: RwLock<Option<DepthStat>>,
     is_updated: AtomicBool,
     depth_data: ArcSwap<Option<DepthData>>,
+
+    db_tree: sled::Tree,
 }
 
 impl Depth {
-    pub fn new(symbol: String) -> Self {
-        Self {
+    pub fn new(symbol: String, db: &sled::Db) -> Result<Self> {
+        let db_tree = db.open_tree(format!("depth_{}", symbol)).map_err(|e| {
+            crate::binance::errors::BinanceError::ClientError {
+                message: format!("Failed to open sled tree for depth {}: {}", symbol, e),
+            }
+        })?;
+        Ok(Self {
             symbol: symbol.clone(),
             stat: RwLock::new(None),
             is_updated: AtomicBool::new(false),
             depth_data: ArcSwap::from_pointee(None),
-        }
+            db_tree,
+        })
     }
 
     pub async fn get_depth(&self) -> Arc<Option<DepthData>> {
@@ -66,6 +75,20 @@ impl Depth {
         })));
         self.is_updated.store(false, Ordering::Release);
         return self.depth_data.load_full();
+    }
+
+    pub async fn archive(&self) {
+        let depth = self.get_depth().await;
+        if depth.is_none() {
+            return;
+        }
+        let depth = (*depth).as_ref().unwrap();
+        self.db_tree
+            .insert(
+                get_current_milli_timestamp().to_string().as_bytes(),
+                serde_json::to_string(&depth).unwrap().as_bytes(),
+            )
+            .unwrap();
     }
 
     pub async fn update_by_depth(&self, depth: &DepthData) -> Result<()> {

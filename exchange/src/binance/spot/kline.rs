@@ -90,16 +90,58 @@ impl Kline {
     }
 
     pub async fn get_klines(&self) -> KlineView {
+        let building_klines = self.building_klines.read().await;
+        let archived_klines = self.archived_klines.load_full();
         KlineView {
-            archived_klines: self.archived_klines.load_full(),
-            building_klines: self
-                .building_klines
-                .read()
-                .await
-                .iter()
-                .map(|k| k.kline.clone())
-                .collect(),
+            archived_klines: archived_klines,
+            building_klines: building_klines.iter().map(|k| k.kline.clone()).collect(),
         }
+    }
+
+    pub async fn get_klines_with_limit(&self, limit: usize) -> VecDeque<Arc<KlineData>> {
+        let building_klines = self.building_klines.read().await;
+        let mut result = building_klines
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|k| k.kline.clone())
+            .collect::<VecDeque<_>>();
+        if result.len() >= limit {
+            return result
+                .iter()
+                .rev()
+                .take(limit)
+                .cloned()
+                .collect::<VecDeque<_>>();
+        }
+
+        let archived_klines = self.archived_klines.load_full();
+        for k in archived_klines.iter().rev() {
+            if result.len() >= limit {
+                return result;
+            }
+            result.push_front(k.clone());
+        }
+
+        drop(building_klines);
+
+        let mut to_time = std::u64::MAX;
+        if !result.is_empty() {
+            to_time = result.front().unwrap().open_time;
+        }
+        self.db_tree
+            .range(..to_time.to_be_bytes())
+            .rev()
+            .take(limit - result.len())
+            .for_each(|item| {
+                if let Ok((_, v)) = item {
+                    if let Ok(kline) = serde_json::from_slice::<KlineData>(&v) {
+                        result.push_front(Arc::new(kline));
+                    }
+                }
+            });
+
+        return result;
     }
 
     pub async fn archive(&self, archived_kline_time: u64) {
@@ -135,7 +177,7 @@ impl Kline {
         let mut batch = sled::Batch::default();
         for kline in to_archive_klines {
             batch.insert(
-                kline.open_time.to_string().as_bytes(),
+                &kline.open_time.to_be_bytes()[..],
                 serde_json::to_string(&*kline).unwrap().as_bytes(),
             );
             if archived_klines.len() >= self.max_archived_cache_cnt {

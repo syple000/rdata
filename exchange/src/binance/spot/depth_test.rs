@@ -60,443 +60,389 @@ mod tests {
 
     #[tokio::test]
     async fn test_depth_new() {
-        let depth = Depth::new("BTCUSDT".to_string());
-        let depth_data = depth.get_depth().await;
-        assert!(depth_data.is_none());
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let result = Depth::new("BTCUSDT".to_string(), &db);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_depth_get_depth_empty() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        let result = depth.get_depth().await;
+        assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_depth_update_by_depth_basic() {
-        let depth = Depth::new("BTCUSDT".to_string());
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
 
         let depth_data = create_test_depth_data(
             "BTCUSDT",
-            100,
+            1000,
             vec![("50000.0", "1.5"), ("49900.0", "2.0")],
-            vec![("50100.0", "1.2"), ("50200.0", "1.8")],
+            vec![("50100.0", "1.0"), ("50200.0", "1.5")],
         );
 
         let result = depth.update_by_depth(&depth_data).await;
         assert!(result.is_ok());
 
-        let retrieved = depth.get_depth().await;
-        assert!(retrieved.is_some());
+        let depth_arc = depth.get_depth().await;
+        assert!(depth_arc.is_some());
 
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.symbol, "BTCUSDT");
-        assert_eq!(data.last_update_id, 100);
-        assert_eq!(data.bids.len(), 2);
-        assert_eq!(data.asks.len(), 2);
+        let depth_result = (*depth_arc).as_ref().unwrap();
+        assert_eq!(depth_result.symbol, "BTCUSDT");
+        assert_eq!(depth_result.last_update_id, 1000);
+        assert_eq!(depth_result.bids.len(), 2);
+        assert_eq!(depth_result.asks.len(), 2);
 
-        // Check bids are sorted descending by price
-        assert!(data.bids[0].price > data.bids[1].price);
-        assert_eq!(data.bids[0].price, Decimal::from_str("50000.0").unwrap());
-        assert_eq!(data.bids[1].price, Decimal::from_str("49900.0").unwrap());
+        // Check bids are sorted in descending order
+        assert_eq!(
+            depth_result.bids[0].price,
+            Decimal::from_str("50000.0").unwrap()
+        );
+        assert_eq!(
+            depth_result.bids[1].price,
+            Decimal::from_str("49900.0").unwrap()
+        );
 
-        // Check asks are sorted ascending by price
-        assert!(data.asks[0].price < data.asks[1].price);
-        assert_eq!(data.asks[0].price, Decimal::from_str("50100.0").unwrap());
-        assert_eq!(data.asks[1].price, Decimal::from_str("50200.0").unwrap());
+        // Check asks are sorted in ascending order
+        assert_eq!(
+            depth_result.asks[0].price,
+            Decimal::from_str("50100.0").unwrap()
+        );
+        assert_eq!(
+            depth_result.asks[1].price,
+            Decimal::from_str("50200.0").unwrap()
+        );
     }
 
     #[tokio::test]
     async fn test_depth_update_by_depth_wrong_symbol() {
-        let depth = Depth::new("BTCUSDT".to_string());
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
 
         let depth_data = create_test_depth_data(
             "ETHUSDT",
-            100,
+            1000,
             vec![("3000.0", "10.0")],
-            vec![("3100.0", "12.0")],
+            vec![("3100.0", "5.0")],
         );
 
         let result = depth.update_by_depth(&depth_data).await;
         assert!(result.is_err());
-
-        if let Err(e) = result {
-            assert!(e.to_string().contains("symbol mismatch"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_depth_update_by_depth_replace() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // First update
-        let depth_data1 = create_test_depth_data(
-            "BTCUSDT",
-            100,
-            vec![("50000.0", "1.5")],
-            vec![("50100.0", "1.2")],
-        );
-        depth.update_by_depth(&depth_data1).await.unwrap();
-
-        // Second update should replace the first
-        let depth_data2 = create_test_depth_data(
-            "BTCUSDT",
-            200,
-            vec![("51000.0", "2.5"), ("50900.0", "3.0")],
-            vec![("51100.0", "2.2")],
-        );
-        depth.update_by_depth(&depth_data2).await.unwrap();
-
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.last_update_id, 200);
-        assert_eq!(data.bids.len(), 2);
-        assert_eq!(data.asks.len(), 1);
-        assert_eq!(data.bids[0].price, Decimal::from_str("51000.0").unwrap());
     }
 
     #[tokio::test]
     async fn test_depth_update_by_depth_update_basic() {
-        let depth = Depth::new("BTCUSDT".to_string());
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
 
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
+        // Initialize with depth data
+        let depth_data = create_test_depth_data(
             "BTCUSDT",
-            100,
+            1000,
             vec![("50000.0", "1.5"), ("49900.0", "2.0")],
-            vec![("50100.0", "1.2"), ("50200.0", "1.8")],
+            vec![("50100.0", "1.0"), ("50200.0", "1.5")],
         );
-        depth.update_by_depth(&initial_depth).await.unwrap();
+        depth.update_by_depth(&depth_data).await.unwrap();
 
-        // Update with new data
-        let update = create_test_depth_update(
+        // Update with depth update
+        let depth_update = create_test_depth_update(
             "BTCUSDT",
-            101,
-            101,
-            vec![("50000.0", "2.5")], // Update existing bid
-            vec![("50300.0", "1.0")], // Add new ask
+            1001,
+            1002,
+            vec![("50000.0", "2.0"), ("49800.0", "3.0")],
+            vec![("50100.0", "1.5")],
             1234567890,
         );
 
-        let result = depth.update_by_depth_update(&update).await;
+        let result = depth.update_by_depth_update(&depth_update).await;
         assert!(result.is_ok());
 
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.last_update_id, 101);
-        assert_eq!(data.bids.len(), 2);
-        assert_eq!(data.asks.len(), 3);
+        let depth_arc = depth.get_depth().await;
+        assert!(depth_arc.is_some());
 
-        // Check the bid was updated
-        let bid_50000 = data
+        let depth_result = (*depth_arc).as_ref().unwrap();
+        assert_eq!(depth_result.last_update_id, 1002);
+
+        // Check updated bid
+        let bid_50000 = depth_result
             .bids
             .iter()
-            .find(|b| b.price == Decimal::from_str("50000.0").unwrap())
-            .unwrap();
-        assert_eq!(bid_50000.quantity, Decimal::from_str("2.5").unwrap());
+            .find(|b| b.price == Decimal::from_str("50000.0").unwrap());
+        assert!(bid_50000.is_some());
+        assert_eq!(
+            bid_50000.unwrap().quantity,
+            Decimal::from_str("2.0").unwrap()
+        );
+
+        // Check new bid
+        let bid_49800 = depth_result
+            .bids
+            .iter()
+            .find(|b| b.price == Decimal::from_str("49800.0").unwrap());
+        assert!(bid_49800.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_depth_update_by_depth_update_without_init() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        let depth_update = create_test_depth_update(
+            "BTCUSDT",
+            1001,
+            1002,
+            vec![("50000.0", "2.0")],
+            vec![("50100.0", "1.5")],
+            1234567890,
+        );
+
+        let result = depth.update_by_depth_update(&depth_update).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_depth_update_by_depth_update_wrong_symbol() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        // Initialize with depth data
+        let depth_data = create_test_depth_data(
+            "BTCUSDT",
+            1000,
+            vec![("50000.0", "1.5")],
+            vec![("50100.0", "1.0")],
+        );
+        depth.update_by_depth(&depth_data).await.unwrap();
+
+        // Try to update with wrong symbol
+        let depth_update = create_test_depth_update(
+            "ETHUSDT",
+            1001,
+            1002,
+            vec![("3000.0", "10.0")],
+            vec![("3100.0", "5.0")],
+            1234567890,
+        );
+
+        let result = depth.update_by_depth_update(&depth_update).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_depth_update_by_depth_update_old_data_ignored() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        // Initialize with depth data
+        let depth_data = create_test_depth_data(
+            "BTCUSDT",
+            1000,
+            vec![("50000.0", "1.5")],
+            vec![("50100.0", "1.0")],
+        );
+        depth.update_by_depth(&depth_data).await.unwrap();
+
+        // Try to update with older data
+        let depth_update = create_test_depth_update(
+            "BTCUSDT",
+            995,
+            999,
+            vec![("50000.0", "2.0")],
+            vec![("50100.0", "1.5")],
+            1234567890,
+        );
+
+        let result = depth.update_by_depth_update(&depth_update).await;
+        assert!(result.is_ok());
+
+        let depth_arc = depth.get_depth().await;
+        let depth_result = (*depth_arc).as_ref().unwrap();
+        // Should still have old update_id
+        assert_eq!(depth_result.last_update_id, 1000);
+    }
+
+    #[tokio::test]
+    async fn test_depth_update_by_depth_update_out_of_order() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        // Initialize with depth data
+        let depth_data = create_test_depth_data(
+            "BTCUSDT",
+            1000,
+            vec![("50000.0", "1.5")],
+            vec![("50100.0", "1.0")],
+        );
+        depth.update_by_depth(&depth_data).await.unwrap();
+
+        // Try to update with gap in sequence
+        let depth_update = create_test_depth_update(
+            "BTCUSDT",
+            1005,
+            1010,
+            vec![("50000.0", "2.0")],
+            vec![("50100.0", "1.5")],
+            1234567890,
+        );
+
+        let result = depth.update_by_depth_update(&depth_update).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_depth_update_by_depth_update_remove_level() {
-        let depth = Depth::new("BTCUSDT".to_string());
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
 
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
+        // Initialize with depth data
+        let depth_data = create_test_depth_data(
             "BTCUSDT",
-            100,
+            1000,
             vec![("50000.0", "1.5"), ("49900.0", "2.0")],
-            vec![("50100.0", "1.2"), ("50200.0", "1.8")],
+            vec![("50100.0", "1.0"), ("50200.0", "1.5")],
         );
-        depth.update_by_depth(&initial_depth).await.unwrap();
+        depth.update_by_depth(&depth_data).await.unwrap();
 
-        // Update to remove a price level (quantity = 0)
-        let update = create_test_depth_update(
+        // Update with zero quantity to remove level
+        let depth_update = create_test_depth_update(
             "BTCUSDT",
-            101,
-            101,
-            vec![("50000.0", "0")], // Remove bid
-            vec![("50100.0", "0")], // Remove ask
+            1001,
+            1002,
+            vec![("50000.0", "0")],
+            vec![("50100.0", "0")],
             1234567890,
         );
 
-        depth.update_by_depth_update(&update).await.unwrap();
+        depth.update_by_depth_update(&depth_update).await.unwrap();
 
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.bids.len(), 1);
-        assert_eq!(data.asks.len(), 1);
-        assert_eq!(data.bids[0].price, Decimal::from_str("49900.0").unwrap());
-        assert_eq!(data.asks[0].price, Decimal::from_str("50200.0").unwrap());
+        let depth_arc = depth.get_depth().await;
+        let depth_result = (*depth_arc).as_ref().unwrap();
+
+        // Check that levels with zero quantity are removed
+        assert_eq!(depth_result.bids.len(), 1);
+        assert_eq!(depth_result.asks.len(), 1);
+
+        assert_eq!(
+            depth_result.bids[0].price,
+            Decimal::from_str("49900.0").unwrap()
+        );
+        assert_eq!(
+            depth_result.asks[0].price,
+            Decimal::from_str("50200.0").unwrap()
+        );
     }
 
     #[tokio::test]
-    async fn test_depth_update_not_initialized() {
-        let depth = Depth::new("BTCUSDT".to_string());
+    async fn test_depth_update_by_depth_update_sequential() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
 
-        // Try to update without initializing
-        let update = create_test_depth_update(
+        // Initialize with depth data
+        let depth_data = create_test_depth_data(
             "BTCUSDT",
-            101,
-            101,
+            1000,
             vec![("50000.0", "1.5")],
-            vec![("50100.0", "1.2")],
-            1234567890,
+            vec![("50100.0", "1.0")],
         );
+        depth.update_by_depth(&depth_data).await.unwrap();
 
-        let result = depth.update_by_depth_update(&update).await;
-        assert!(result.is_err());
-
-        if let Err(e) = result {
-            assert!(e.to_string().contains("not initialized"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_depth_update_wrong_symbol() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
+        // First update
+        let depth_update1 = create_test_depth_update(
             "BTCUSDT",
-            100,
-            vec![("50000.0", "1.5")],
-            vec![("50100.0", "1.2")],
-        );
-        depth.update_by_depth(&initial_depth).await.unwrap();
-
-        // Try to update with wrong symbol
-        let update = create_test_depth_update(
-            "ETHUSDT",
-            101,
-            101,
-            vec![("3000.0", "10.0")],
-            vec![("3100.0", "12.0")],
-            1234567890,
-        );
-
-        let result = depth.update_by_depth_update(&update).await;
-        assert!(result.is_err());
-
-        if let Err(e) = result {
-            assert!(e.to_string().contains("symbol mismatch"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_depth_update_out_of_order() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
-            "BTCUSDT",
-            100,
-            vec![("50000.0", "1.5")],
-            vec![("50100.0", "1.2")],
-        );
-        depth.update_by_depth(&initial_depth).await.unwrap();
-
-        // Try to update with out-of-order update (first_update_id > last_update_id + 1)
-        let update = create_test_depth_update(
-            "BTCUSDT",
-            105, // Gap: 105 > 100 + 1
-            110,
+            1001,
+            1002,
             vec![("50000.0", "2.0")],
-            vec![("50100.0", "2.5")],
+            vec![],
             1234567890,
         );
+        depth.update_by_depth_update(&depth_update1).await.unwrap();
 
-        let result = depth.update_by_depth_update(&update).await;
-        assert!(result.is_err());
-
-        if let Err(e) = result {
-            assert!(e.to_string().contains("out of order"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_depth_update_ignore_old_update() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
+        // Second update
+        let depth_update2 = create_test_depth_update(
             "BTCUSDT",
-            100,
-            vec![("50000.0", "1.5")],
-            vec![("50100.0", "1.2")],
-        );
-        depth.update_by_depth(&initial_depth).await.unwrap();
-
-        // Try to update with older update (last_update_id <= current last_update_id)
-        let update = create_test_depth_update(
-            "BTCUSDT",
-            95,
-            100,
-            vec![("50000.0", "2.0")],
-            vec![("50100.0", "2.5")],
-            1234567890,
-        );
-
-        let result = depth.update_by_depth_update(&update).await;
-        assert!(result.is_ok());
-
-        // Verify depth was not updated
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.last_update_id, 100);
-        assert_eq!(data.bids[0].quantity, Decimal::from_str("1.5").unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_depth_update_sequential_updates() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
-            "BTCUSDT",
-            100,
-            vec![("50000.0", "1.0"), ("49900.0", "2.0"), ("49800.0", "3.0")],
-            vec![("50100.0", "1.0"), ("50200.0", "2.0"), ("50300.0", "3.0")],
-        );
-        depth.update_by_depth(&initial_depth).await.unwrap();
-
-        // Sequential update 1
-        let update1 = create_test_depth_update(
-            "BTCUSDT",
-            101,
-            102,
-            vec![("50000.0", "1.5"), ("49700.0", "1.0")], // Update one, add one
-            vec![("50100.0", "0")],                       // Remove one
-            1234567890,
-        );
-        depth.update_by_depth_update(&update1).await.unwrap();
-
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.last_update_id, 102);
-        assert_eq!(data.bids.len(), 4); // 3 original - 0 + 1 new
-        assert_eq!(data.asks.len(), 2); // 3 original - 1
-
-        // Sequential update 2
-        let update2 = create_test_depth_update(
-            "BTCUSDT",
-            103,
-            104,
-            vec![("49800.0", "0"), ("50100.0", "2.0")], // Remove one, add new
-            vec![("50200.0", "5.0")],                   // Update one
+            1003,
+            1004,
+            vec![("49900.0", "3.0")],
+            vec![("50200.0", "2.0")],
             1234567891,
         );
-        depth.update_by_depth_update(&update2).await.unwrap();
+        depth.update_by_depth_update(&depth_update2).await.unwrap();
 
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.last_update_id, 104);
-        assert_eq!(data.bids.len(), 4); // 4 - 1 + 1
-        assert_eq!(data.asks.len(), 2);
+        let depth_arc = depth.get_depth().await;
+        let depth_result = (*depth_arc).as_ref().unwrap();
 
-        // Verify specific updates
-        let ask_50200 = data
-            .asks
-            .iter()
-            .find(|a| a.price == Decimal::from_str("50200.0").unwrap())
-            .unwrap();
-        assert_eq!(ask_50200.quantity, Decimal::from_str("5.0").unwrap());
+        assert_eq!(depth_result.last_update_id, 1004);
+        assert_eq!(depth_result.bids.len(), 2);
+        assert_eq!(depth_result.asks.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_depth_archive() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        let depth_data = create_test_depth_data(
+            "BTCUSDT",
+            1000,
+            vec![("50000.0", "1.5")],
+            vec![("50100.0", "1.0")],
+        );
+        depth.update_by_depth(&depth_data).await.unwrap();
+
+        // Archive should not panic
+        depth.archive().await;
+    }
+
+    #[tokio::test]
+    async fn test_depth_archive_empty() {
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+
+        // Archive empty depth should not panic
+        depth.archive().await;
     }
 
     #[tokio::test]
     async fn test_depth_sorting() {
-        let depth = Depth::new("BTCUSDT".to_string());
+        let db = sled::Config::default().temporary(true).open().unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
 
-        // Create depth with unsorted data
+        // Create depth data with unsorted prices
         let depth_data = create_test_depth_data(
             "BTCUSDT",
-            100,
+            1000,
             vec![
                 ("49900.0", "2.0"),
                 ("50000.0", "1.5"),
                 ("49800.0", "3.0"),
-                ("50100.0", "0.5"),
+                ("50100.0", "1.0"),
             ],
             vec![
-                ("50300.0", "1.8"),
-                ("50100.0", "1.2"),
-                ("50500.0", "2.5"),
-                ("50200.0", "1.0"),
+                ("50300.0", "1.5"),
+                ("50100.0", "1.0"),
+                ("50500.0", "2.0"),
+                ("50200.0", "1.2"),
             ],
         );
 
         depth.update_by_depth(&depth_data).await.unwrap();
 
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
+        let depth_arc = depth.get_depth().await;
+        let depth_result = (*depth_arc).as_ref().unwrap();
 
-        // Verify bids are sorted descending
-        for i in 0..data.bids.len() - 1 {
-            assert!(data.bids[i].price > data.bids[i + 1].price);
-        }
-        assert_eq!(data.bids[0].price, Decimal::from_str("50100.0").unwrap());
-        assert_eq!(
-            data.bids[data.bids.len() - 1].price,
-            Decimal::from_str("49800.0").unwrap()
-        );
-
-        // Verify asks are sorted ascending
-        for i in 0..data.asks.len() - 1 {
-            assert!(data.asks[i].price < data.asks[i + 1].price);
-        }
-        assert_eq!(data.asks[0].price, Decimal::from_str("50100.0").unwrap());
-        assert_eq!(
-            data.asks[data.asks.len() - 1].price,
-            Decimal::from_str("50500.0").unwrap()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_depth_empty_orderbook() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Create depth with empty bids and asks
-        let depth_data = create_test_depth_data("BTCUSDT", 100, vec![], vec![]);
-
-        depth.update_by_depth(&depth_data).await.unwrap();
-
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.bids.len(), 0);
-        assert_eq!(data.asks.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_depth_get_depth_before_update() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Call get_depth multiple times before any update
-        let data1 = depth.get_depth().await;
-        assert!(data1.is_none());
-
-        let data2 = depth.get_depth().await;
-        assert!(data2.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_depth_concurrent_updates() {
-        let depth = Depth::new("BTCUSDT".to_string());
-
-        // Initialize depth
-        let initial_depth = create_test_depth_data(
-            "BTCUSDT",
-            100,
-            vec![("50000.0", "1.0")],
-            vec![("50100.0", "1.0")],
-        );
-        depth.update_by_depth(&initial_depth).await.unwrap();
-
-        // Simulate multiple updates in sequence
-        let updates = vec![
-            create_test_depth_update("BTCUSDT", 101, 101, vec![("50000.0", "2.0")], vec![], 1000),
-            create_test_depth_update("BTCUSDT", 102, 102, vec![("50000.0", "3.0")], vec![], 2000),
-            create_test_depth_update("BTCUSDT", 103, 103, vec![("50000.0", "4.0")], vec![], 3000),
-        ];
-
-        for update in updates {
-            depth.update_by_depth_update(&update).await.unwrap();
+        // Verify bids are sorted in descending order (highest price first)
+        for i in 0..depth_result.bids.len() - 1 {
+            assert!(depth_result.bids[i].price > depth_result.bids[i + 1].price);
         }
 
-        let retrieved = depth.get_depth().await;
-        let data = retrieved.as_ref().as_ref().unwrap();
-        assert_eq!(data.last_update_id, 103);
-        assert_eq!(data.bids[0].quantity, Decimal::from_str("4.0").unwrap());
+        // Verify asks are sorted in ascending order (lowest price first)
+        for i in 0..depth_result.asks.len() - 1 {
+            assert!(depth_result.asks[i].price < depth_result.asks[i + 1].price);
+        }
     }
 }

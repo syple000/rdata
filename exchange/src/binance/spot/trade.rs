@@ -81,16 +81,59 @@ impl Trade {
     }
 
     pub async fn get_trades(&self) -> TradeView {
+        let latest_trades = self.latest_trades.read().await;
+        let archived_trades = self.archived_trades.load_full();
         TradeView {
-            archived_trades: self.archived_trades.load_full(),
-            latest_trades: self
-                .latest_trades
-                .read()
-                .await
+            archived_trades: archived_trades,
+            latest_trades: latest_trades
                 .iter()
                 .filter_map(|t| t.trade.clone())
                 .collect(),
         }
+    }
+
+    pub async fn get_trades_with_limit(&self, limit: usize) -> VecDeque<Arc<AggTrade>> {
+        let latest_trades = self.latest_trades.read().await;
+        let mut result = latest_trades
+            .iter()
+            .filter_map(|t| t.trade.clone())
+            .collect::<VecDeque<_>>();
+        if result.len() >= limit {
+            return result
+                .iter()
+                .rev()
+                .take(limit)
+                .cloned()
+                .collect::<VecDeque<_>>();
+        }
+
+        let archived_trades = self.archived_trades.load_full();
+        for trade in archived_trades.iter().rev() {
+            if result.len() >= limit {
+                return result;
+            }
+            result.push_front(trade.clone());
+        }
+
+        drop(latest_trades);
+
+        let mut to_id = std::u64::MAX;
+        if !result.is_empty() {
+            to_id = result.front().unwrap().agg_trade_id;
+        }
+        self.db_tree
+            .range(..to_id.to_be_bytes())
+            .rev()
+            .take(limit - result.len())
+            .for_each(|item| {
+                if let Ok((_, v)) = item {
+                    if let Ok(trade) = serde_json::from_slice::<AggTrade>(&v) {
+                        result.push_front(Arc::new(trade));
+                    }
+                }
+            });
+
+        return result;
     }
 
     pub async fn archive(&self, archived_trade_id: u64) {
@@ -130,7 +173,7 @@ impl Trade {
         let mut batch = sled::Batch::default();
         for trade in to_archive_trades {
             batch.insert(
-                trade.agg_trade_id.to_string().as_bytes(),
+                &trade.agg_trade_id.to_be_bytes()[..],
                 serde_json::to_string(&*trade).unwrap().as_bytes(),
             );
             if archived_trades.len() >= self.max_archived_cache_cnt {

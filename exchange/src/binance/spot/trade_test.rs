@@ -343,6 +343,9 @@ mod tests {
 
         let view_after = trade_manager.get_trades().await;
         assert_eq!(view_after.len(), 5);
+
+        let trades = trade_manager.get_trades_with_limit(100).await;
+        assert_eq!(trades.len(), 20);
     }
 
     #[tokio::test]

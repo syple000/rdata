@@ -336,6 +336,9 @@ mod tests {
 
         let view_after = kline_manager.get_klines().await;
         assert_eq!(view_after.len(), 6);
+
+        let klines = kline_manager.get_klines_with_limit(1000).await;
+        assert_eq!(klines.len(), 20);
     }
 
     #[tokio::test]
