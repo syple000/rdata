@@ -65,28 +65,39 @@ impl KlineView {
 // 来源2：trade.rs中的更新trade。在trade进行归档时，归档kline
 impl Kline {
     pub fn new(
-        symbol: String,
+        symbol: &str,
         interval: u64,
         max_building_cache_cnt: usize,
         target_building_cache_cnt: usize,
         max_archived_cache_cnt: usize,
         db: &sled::Db,
     ) -> Result<Self> {
-        let db_tree = db.open_tree(format!("{}_kline", symbol)).map_err(|e| {
-            crate::binance::errors::BinanceError::ClientError {
+        let db_tree = db
+            .open_tree(format!("{}_{}_kline", symbol, interval))
+            .map_err(|e| crate::binance::errors::BinanceError::ClientError {
                 message: format!("Failed to new Kline, open sled tree fail: {}", e),
+            })?;
+
+        let mut archived_klines = VecDeque::with_capacity(max_archived_cache_cnt);
+        let mut latest_archived_kline_time = 0u64;
+        for item in db_tree.iter().rev().take(max_archived_cache_cnt) {
+            if let Ok((_, v)) = item {
+                if let Ok(kline) = serde_json::from_slice::<KlineData>(&v) {
+                    latest_archived_kline_time = latest_archived_kline_time.max(kline.open_time);
+                    archived_klines.push_front(Arc::new(kline));
+                }
             }
-        })?;
+        }
 
         Ok(Self {
-            symbol,
+            symbol: symbol.to_string(),
             interval,
             max_building_cache_cnt,
             target_building_cache_cnt,
             building_klines: RwLock::new(VecDeque::with_capacity(max_building_cache_cnt)),
             max_archived_cache_cnt,
-            latest_archived_kline_time: AtomicU64::new(0),
-            archived_klines: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cache_cnt)),
+            latest_archived_kline_time: AtomicU64::new(latest_archived_kline_time),
+            archived_klines: ArcSwap::from_pointee(archived_klines),
             db_tree,
         })
     }

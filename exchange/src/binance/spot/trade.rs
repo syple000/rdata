@@ -16,7 +16,7 @@ struct TradeStat {
 }
 
 // 来源1：websocket推送
-// 来源2：api获取（从latest_archived_trade_id开始获取，如果该值不存在，获取最新的trades，使用最新的trade id更新latest_archived_trade_id）
+// 来源2：api获取（初始化 或 从latest_archived_trade_id开始获取，如果该值不存在，获取最新的trades，使用最新的trade id更新latest_archived_trade_id）
 pub struct Trade {
     symbol: String,
 
@@ -58,7 +58,7 @@ impl TradeView {
 
 impl Trade {
     pub fn new(
-        symbol: String,
+        symbol: &str,
         max_latest_cache_cnt: usize,
         target_latest_cache_cnt: usize,
         max_archived_cache_cnt: usize,
@@ -70,14 +70,25 @@ impl Trade {
             }
         })?;
 
+        let mut archived_trades = VecDeque::with_capacity(max_archived_cache_cnt);
+        let mut latest_archived_trade_id = 0u64;
+        for item in db_tree.iter().rev().take(max_archived_cache_cnt) {
+            if let Ok((_, v)) = item {
+                if let Ok(trade) = serde_json::from_slice::<AggTrade>(&v) {
+                    latest_archived_trade_id = latest_archived_trade_id.max(trade.agg_trade_id);
+                    archived_trades.push_front(Arc::new(trade));
+                }
+            }
+        }
+
         Ok(Self {
-            symbol: symbol.clone(),
+            symbol: symbol.to_string(),
             max_latest_cache_cnt,
             target_latest_cache_cnt,
             max_archived_cache_cnt,
-            latest_archived_trade_id: AtomicU64::new(0),
+            latest_archived_trade_id: AtomicU64::new(latest_archived_trade_id),
             latest_trades: RwLock::new(VecDeque::with_capacity(max_latest_cache_cnt)),
-            archived_trades: ArcSwap::from_pointee(VecDeque::with_capacity(max_archived_cache_cnt)),
+            archived_trades: ArcSwap::from_pointee(archived_trades),
             db_tree,
         })
     }

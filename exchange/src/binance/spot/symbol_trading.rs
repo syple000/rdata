@@ -4,84 +4,67 @@ use crate::binance::{
 };
 use dashmap::{DashMap, DashSet};
 use rust_decimal::Decimal;
-use serde::Serialize;
-use std::sync::{atomic::Ordering, Arc};
-use tokio::sync::RwLock;
+use std::sync::Arc;
 
-#[derive(Serialize, Debug)]
-struct OrderStat {
-    order_id: u64,
-    want_price: Option<Decimal>, // 少数场景下会无数据，可以试着从depth获取
-    order: Option<Order>,
-    trades: Option<Vec<Trade>>,
-}
-
-impl OrderStat {
-    fn need_fetch_order(&self) -> bool {
-        self.order.is_none()
-    }
-
-    fn need_fetch_trades(&self) -> bool {
-        let order = match &self.order {
-            Some(v) => v,
-            None => return false,
-        };
-        let mut qty = Decimal::new(0, 0);
-        if let Some(trades) = &self.trades {
-            for trade in trades {
-                qty += trade.trade_quantity;
-            }
-        }
-        qty < order.executed_qty
-    }
-
-    fn is_final(&self) -> bool {
-        let order_terminate = match &self.order {
-            Some(v) => v.order_status.is_final(),
-            None => false,
-        };
-        if !order_terminate {
-            return false;
-        }
-
-        !self.need_fetch_trades()
-    }
-}
-
-// 来源1：websocket推送（订单/成交）
-// 来源2：api获取在途订单（定期获取即可，仅极少情况需要依赖该方式补充数据）
-// 来源3：api获取order为空的订单（定期执行即可，仅极少情况发生数据丢失）
-// 来源4：api获取order成交比成交返回多的成交（定期执行即可，仅少数情况发生）
 pub struct SymbolTrading {
     symbol: String,
-    base_asset: String,
-    quote_asset: String,
 
-    on_order_stats: DashMap<u64, RwLock<OrderStat>>,
+    // 在途订单交易缓存
+    client_order_id_want_price_map: DashMap<String, Decimal>,
+    client_order_id_exchange_order_id_map: DashMap<String, u64>,
+    orders: DashMap<u64, Arc<Order>>,
+    trades: DashMap<u64, Vec<Arc<Trade>>>,
+
+    // 已完成订单记录（从缓存中移除，仅数据库）
+    final_client_orders: DashSet<String>,
     final_orders: DashSet<u64>,
 
     // 数据库持久化
-    db_tree: sled::Tree,
+    client_order_id_want_price_tree: sled::Tree,
+    client_order_id_exchange_order_id_tree: sled::Tree,
+    orders_tree: sled::Tree,
+    trades_tree: sled::Tree,
+    final_client_orders_tree: sled::Tree,
+    final_orders_tree: sled::Tree,
+    on_client_orders_tree: sled::Tree, // 恢复在途订单交易缓存用
 }
 
 impl SymbolTrading {
-    pub fn new(symbol: &str, base_asset: &str, quote_asset: &str, db: &sled::Db) -> Result<Self> {
-        let db_tree = db
-            .open_tree(format!("{}_symbol_trading", symbol))
-            .map_err(|e| crate::binance::errors::BinanceError::ClientError {
-                message: format!(
-                    "Failed to open sled tree for symbol trading {}: {}",
-                    symbol, e
-                ),
-            })?;
+    pub fn new(symbol: &str, db: &sled::Db) -> Result<Self> {
         Ok(Self {
             symbol: symbol.to_string(),
-            base_asset: base_asset.to_string(),
-            quote_asset: quote_asset.to_string(),
-            on_order_stats: DashMap::new(),
+            client_order_id_want_price_map: DashMap::new(),
+            client_order_id_exchange_order_id_map: DashMap::new(),
+            orders: DashMap::new(),
+            trades: DashMap::new(),
+            final_client_orders: DashSet::new(),
             final_orders: DashSet::new(),
-            db_tree,
+            client_order_id_want_price_tree: Self::create_tree(
+                symbol,
+                db,
+                "client_order_id_want_price",
+            )?,
+            client_order_id_exchange_order_id_tree: Self::create_tree(
+                symbol,
+                db,
+                "client_order_id_exchange_order_id",
+            )?,
+            orders_tree: Self::create_tree(symbol, db, "orders")?,
+            trades_tree: Self::create_tree(symbol, db, "trades")?,
+            final_client_orders_tree: Self::create_tree(symbol, db, "final_client_orders")?,
+            final_orders_tree: Self::create_tree(symbol, db, "final_orders")?,
+            on_client_orders_tree: Self::create_tree(symbol, db, "on_client_orders")?,
         })
+    }
+
+    fn create_tree(symbol: &str, db: &sled::Db, suffix: &str) -> Result<sled::Tree> {
+        db.open_tree(format!("{}_trading_{}", symbol, suffix))
+            .map_err(|e| crate::binance::errors::BinanceError::ClientError {
+                message: format!(
+                    "Failed to open sled tree for symbol trading {} {}: {}",
+                    symbol, suffix, e
+                ),
+            })
     }
 
     pub async fn update_by_want_price(&self, order_id: u64, want_price: Decimal) -> Result<()> {

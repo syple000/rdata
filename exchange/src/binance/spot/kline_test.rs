@@ -55,7 +55,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_new() {
         let result = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -68,7 +68,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_kline_basic() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -102,7 +102,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_kline_wrong_symbol() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -129,7 +129,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_kline_wrong_interval() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -156,7 +156,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_kline_sequential() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -202,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_trade_basic() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -231,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_trade_multiple_in_same_interval() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -288,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_update_by_trade_wrong_symbol() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -306,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_archive() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             10,
             5,
@@ -344,7 +344,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_view_iter() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             100,
             50,
@@ -378,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_gap_filling() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
@@ -420,7 +420,7 @@ mod tests {
     #[tokio::test]
     async fn test_kline_old_data_ignored() {
         let kline_manager = Kline::new(
-            "BTCUSDT".to_string(),
+            "BTCUSDT",
             60000,
             1000,
             500,
