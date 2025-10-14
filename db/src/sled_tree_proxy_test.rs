@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::error::Result;
+    use crate::error::{Error, Result};
     use crate::sled_tree_proxy::{SledTreeProxy, SledTreeProxyHook};
     use serde::{Deserialize, Serialize};
     use std::sync::{Arc, Mutex};
@@ -196,6 +196,13 @@ mod tests {
         let count = proxy.iter().count();
         assert_eq!(count, 5);
 
+        // Verify we can iterate and get deserialized values
+        let mut collected: Vec<(Vec<u8>, SimpleData)> = Vec::new();
+        for item in proxy.iter() {
+            collected.push(item?);
+        }
+        assert_eq!(collected.len(), 5);
+
         Ok(())
     }
 
@@ -216,6 +223,15 @@ mod tests {
         let end: Vec<u8> = b"key_06".to_vec();
         let range_count = proxy.range(start..end).count();
         assert_eq!(range_count, 4); // key_02, key_03, key_04, key_05
+
+        // Verify we can iterate over range and get deserialized values
+        let start: Vec<u8> = b"key_02".to_vec();
+        let end: Vec<u8> = b"key_06".to_vec();
+        let mut collected: Vec<(Vec<u8>, SimpleData)> = Vec::new();
+        for item in proxy.range(start..end) {
+            collected.push(item?);
+        }
+        assert_eq!(collected.len(), 4);
 
         Ok(())
     }
@@ -474,6 +490,387 @@ mod tests {
 
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap(), data);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_returns_deserialized_values() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<TestData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        let data1 = TestData {
+            id: 1,
+            name: "First".to_string(),
+            value: 10.0,
+        };
+        let data2 = TestData {
+            id: 2,
+            name: "Second".to_string(),
+            value: 20.0,
+        };
+        let data3 = TestData {
+            id: 3,
+            name: "Third".to_string(),
+            value: 30.0,
+        };
+
+        proxy.insert(b"key1", &data1)?;
+        proxy.insert(b"key2", &data2)?;
+        proxy.insert(b"key3", &data3)?;
+
+        // Iterate and verify we get (Vec<u8>, T) tuples
+        let results: std::result::Result<Vec<(Vec<u8>, TestData)>, _> = proxy.iter().collect();
+        let results = results?;
+
+        assert_eq!(results.len(), 3);
+
+        // Verify the data is correctly deserialized
+        for (key, value) in results {
+            match key.as_slice() {
+                b"key1" => assert_eq!(value, data1),
+                b"key2" => assert_eq!(value, data2),
+                b"key3" => assert_eq!(value, data3),
+                _ => panic!("Unexpected key: {:?}", key),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_iterator_returns_deserialized_values() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert items with sortable keys
+        for i in 0..10 {
+            let key = format!("key_{:02}", i);
+            let data = SimpleData { count: i };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Test range query and verify deserialized values
+        let start: Vec<u8> = b"key_03".to_vec();
+        let end: Vec<u8> = b"key_07".to_vec();
+
+        let results: std::result::Result<Vec<(Vec<u8>, SimpleData)>, _> =
+            proxy.range(start..end).collect();
+        let results = results?;
+
+        assert_eq!(results.len(), 4);
+
+        // Verify values are in expected range and correctly deserialized
+        for (i, (key, value)) in results.iter().enumerate() {
+            let expected_key = format!("key_{:02}", i + 3);
+            assert_eq!(key, expected_key.as_bytes());
+            assert_eq!(value.count, (i + 3) as i32);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_rev() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert items with sortable keys
+        for i in 0..5 {
+            let key = format!("key_{}", i);
+            let data = SimpleData { count: i };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Iterate in reverse order
+        let results: std::result::Result<Vec<(Vec<u8>, SimpleData)>, _> =
+            proxy.iter().rev().collect();
+        let results = results?;
+
+        assert_eq!(results.len(), 5);
+
+        // Verify items are in reverse order
+        for (i, (key, value)) in results.iter().enumerate() {
+            let expected_idx = 4 - i;
+            let expected_key = format!("key_{}", expected_idx);
+            assert_eq!(key, expected_key.as_bytes());
+            assert_eq!(value.count, expected_idx as i32);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_for_each() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<TestData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 1..=3 {
+            let key = format!("key{}", i);
+            let data = TestData {
+                id: i as u64,
+                name: format!("Item {}", i),
+                value: i as f64 * 10.0,
+            };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Use for_each to collect data
+        let mut collected: Vec<(Vec<u8>, TestData)> = Vec::new();
+        proxy.iter().for_each(|key, value| {
+            collected.push((key, value));
+        })?;
+
+        assert_eq!(collected.len(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_keys_and_values() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        proxy.insert(b"key1", &SimpleData { count: 10 })?;
+        proxy.insert(b"key2", &SimpleData { count: 20 })?;
+        proxy.insert(b"key3", &SimpleData { count: 30 })?;
+
+        // Test keys()
+        let keys: std::result::Result<Vec<Vec<u8>>, _> = proxy.iter().keys().collect();
+        let keys = keys?;
+        assert_eq!(keys.len(), 3);
+
+        // Test values()
+        let values: std::result::Result<Vec<SimpleData>, _> = proxy.iter().values().collect();
+        let values = values?;
+        assert_eq!(values.len(), 3);
+
+        // Verify sum of values
+        let sum: i32 = values.iter().map(|v| v.count).sum();
+        assert_eq!(sum, 60);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_find() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 0..10 {
+            let key = format!("key_{:02}", i);
+            let data = SimpleData { count: i * 5 };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Find element with count == 25
+        let result = proxy.iter().find(|_key, value| value.count == 25)?;
+        assert!(result.is_some());
+        let (key, value) = result.unwrap();
+        assert_eq!(key, b"key_05");
+        assert_eq!(value.count, 25);
+
+        // Find non-existing element
+        let result = proxy.iter().find(|_key, value| value.count == 999)?;
+        assert!(result.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_any_all() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 1..=5 {
+            let key = format!("key{}", i);
+            let data = SimpleData { count: i * 10 };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Test any - at least one element has count > 30
+        let has_large = proxy.iter().any(|_key, value| value.count > 30)?;
+        assert!(has_large);
+
+        // Test any - no element has count > 100
+        let has_very_large = proxy.iter().any(|_key, value| value.count > 100)?;
+        assert!(!has_very_large);
+
+        // Test all - all elements have count > 0
+        let all_positive = proxy.iter().all(|_key, value| value.count > 0)?;
+        assert!(all_positive);
+
+        // Test all - not all elements have count > 30
+        let all_large = proxy.iter().all(|_key, value| value.count > 30)?;
+        assert!(!all_large);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_count_items() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 0..7 {
+            let key = format!("key{}", i);
+            proxy.insert(key.as_bytes(), &SimpleData { count: i })?;
+        }
+
+        let count = proxy.iter().count_items()?;
+        assert_eq!(count, 7);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_nth_and_last() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data with sortable keys
+        for i in 0..5 {
+            let key = format!("key_{:02}", i);
+            let data = SimpleData { count: i * 10 };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Test nth_item
+        let second = proxy.iter().nth_item(2)?;
+        assert!(second.is_some());
+        let (key, value) = second.unwrap();
+        assert_eq!(key, b"key_02");
+        assert_eq!(value.count, 20);
+
+        // Test nth_item out of bounds
+        let out_of_bounds = proxy.iter().nth_item(100)?;
+        assert!(out_of_bounds.is_none());
+
+        // Test last_item
+        let last = proxy.iter().last_item()?;
+        assert!(last.is_some());
+        let (key, value) = last.unwrap();
+        assert_eq!(key, b"key_04");
+        assert_eq!(value.count, 40);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_take_skip() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 0..10 {
+            let key = format!("key_{:02}", i);
+            let data = SimpleData { count: i };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Test take(3) - first 3 elements
+        let taken: std::result::Result<Vec<(Vec<u8>, SimpleData)>, _> =
+            proxy.iter().take(3).collect();
+        let taken = taken?;
+        assert_eq!(taken.len(), 3);
+
+        // Test skip(7) - skip first 7 elements
+        let skipped: std::result::Result<Vec<(Vec<u8>, SimpleData)>, _> =
+            proxy.iter().skip(7).collect();
+        let skipped = skipped?;
+        assert_eq!(skipped.len(), 3); // 10 - 7 = 3
+
+        // Test skip(5).take(3) - skip 5, take next 3
+        let skip_take: std::result::Result<Vec<(Vec<u8>, SimpleData)>, _> =
+            proxy.iter().skip(5).take(3).collect();
+        let skip_take = skip_take?;
+        assert_eq!(skip_take.len(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_collect_vec() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<TestData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 1..=4 {
+            let key = format!("key{}", i);
+            let data = TestData {
+                id: i as u64,
+                name: format!("Test {}", i),
+                value: i as f64,
+            };
+            proxy.insert(key.as_bytes(), &data)?;
+        }
+
+        // Use collect_vec convenience method
+        let items = proxy.iter().collect_vec()?;
+        assert_eq!(items.len(), 4);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_iterator_try_for_each() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 0..5 {
+            let key = format!("key{}", i);
+            proxy.insert(key.as_bytes(), &SimpleData { count: i * 2 })?;
+        }
+
+        // Use try_for_each to validate all values
+        let mut sum = 0;
+        proxy.iter().try_for_each(|_key, value| {
+            if value.count < 0 {
+                return Err(Error::SerDesError("Negative value".to_string()));
+            }
+            sum += value.count;
+            Ok(())
+        })?;
+
+        assert_eq!(sum, 0 + 2 + 4 + 6 + 8);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_double_ended_iterator() -> Result<()> {
+        let (_temp_dir, db) = setup_db();
+        let proxy: SledTreeProxy<SimpleData> = SledTreeProxy::new(&db, "test_tree", None)?;
+
+        // Insert test data
+        for i in 0..5 {
+            let key = format!("key_{}", i);
+            proxy.insert(key.as_bytes(), &SimpleData { count: i })?;
+        }
+
+        // Use next_back from both ends
+        let mut iter = proxy.iter();
+
+        // Get first element
+        let first = iter.next();
+        assert!(first.is_some());
+        let (key, value) = first.unwrap()?;
+        assert_eq!(key, b"key_0");
+        assert_eq!(value.count, 0);
+
+        // Get last element
+        let last = iter.next_back();
+        assert!(last.is_some());
+        let (key, value) = last.unwrap()?;
+        assert_eq!(key, b"key_4");
+        assert_eq!(value.count, 4);
 
         Ok(())
     }

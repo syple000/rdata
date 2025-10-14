@@ -4,7 +4,7 @@ use bincode::serde as bcs;
 use log::{debug, error};
 use serde::{de::DeserializeOwned, Serialize};
 use sled::Batch;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 pub trait SledTreeProxyHook {
     type Item;
@@ -12,6 +12,219 @@ pub trait SledTreeProxyHook {
     fn on_insert(&self, name: &str, key: &[u8], value: &Self::Item);
     fn on_remove(&self, name: &str, key: &[u8]);
     fn on_apply_batch(&self, name: &str, batch: &[(&[u8], Option<&Self::Item>)]);
+}
+
+pub struct SledTreeProxyIter<T>
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
+    inner: sled::Iter,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> SledTreeProxyIter<T>
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
+    fn new(inner: sled::Iter) -> Self {
+        Self {
+            inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn rev(self) -> SledTreeProxyIterRev<T> {
+        SledTreeProxyIterRev {
+            inner: self.inner.rev(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn keys(self) -> impl Iterator<Item = Result<Vec<u8>>> {
+        self.map(|result| result.map(|(key, _)| key))
+    }
+
+    pub fn values(self) -> impl Iterator<Item = Result<T>> {
+        self.map(|result| result.map(|(_, value)| value))
+    }
+
+    pub fn for_each<F>(self, mut f: F) -> Result<()>
+    where
+        F: FnMut(Vec<u8>, T),
+    {
+        for item in self {
+            let (key, value) = item?;
+            f(key, value);
+        }
+        Ok(())
+    }
+
+    pub fn try_for_each<F>(self, mut f: F) -> Result<()>
+    where
+        F: FnMut(Vec<u8>, T) -> Result<()>,
+    {
+        for item in self {
+            let (key, value) = item?;
+            f(key, value)?;
+        }
+        Ok(())
+    }
+
+    pub fn collect_vec(self) -> Result<Vec<(Vec<u8>, T)>> {
+        self.collect()
+    }
+
+    pub fn find<F>(self, mut predicate: F) -> Result<Option<(Vec<u8>, T)>>
+    where
+        F: FnMut(&Vec<u8>, &T) -> bool,
+    {
+        for item in self {
+            let (key, value) = item?;
+            if predicate(&key, &value) {
+                return Ok(Some((key, value)));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn any<F>(self, mut predicate: F) -> Result<bool>
+    where
+        F: FnMut(&Vec<u8>, &T) -> bool,
+    {
+        for item in self {
+            let (key, value) = item?;
+            if predicate(&key, &value) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn all<F>(self, mut predicate: F) -> Result<bool>
+    where
+        F: FnMut(&Vec<u8>, &T) -> bool,
+    {
+        for item in self {
+            let (key, value) = item?;
+            if !predicate(&key, &value) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    pub fn count_items(self) -> Result<usize> {
+        let mut count = 0;
+        for item in self {
+            item?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    pub fn nth_item(mut self, n: usize) -> Result<Option<(Vec<u8>, T)>> {
+        for _ in 0..n {
+            if self.next().is_none() {
+                return Ok(None);
+            }
+        }
+        self.next().transpose()
+    }
+
+    pub fn last_item(self) -> Result<Option<(Vec<u8>, T)>> {
+        let mut last = None;
+        for item in self {
+            last = Some(item?);
+        }
+        Ok(last)
+    }
+}
+
+impl<T> Iterator for SledTreeProxyIter<T>
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
+    type Item = Result<(Vec<u8>, T)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.next() {
+            None => None,
+            Some(Ok((key, value_bytes))) => {
+                let key_vec = key.to_vec();
+                match bcs::decode_from_slice(&value_bytes, bcs_config()) {
+                    Ok((value, _)) => Some(Ok((key_vec, value))),
+                    Err(e) => {
+                        error!("Iterator deserialize error for key {:?}: {:?}", key_vec, e);
+                        Some(Err(Error::SerDesError(format!("Deserialize err: {:?}", e))))
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                error!("Iterator sled error: {:?}", e);
+                Some(Err(Error::SledError(e)))
+            }
+        }
+    }
+}
+
+impl<T> DoubleEndedIterator for SledTreeProxyIter<T>
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self.inner.next_back() {
+            None => None,
+            Some(Ok((key, value_bytes))) => {
+                let key_vec = key.to_vec();
+                match bcs::decode_from_slice(&value_bytes, bcs_config()) {
+                    Ok((value, _)) => Some(Ok((key_vec, value))),
+                    Err(e) => {
+                        error!("Iterator deserialize error for key {:?}: {:?}", key_vec, e);
+                        Some(Err(Error::SerDesError(format!("Deserialize err: {:?}", e))))
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                error!("Iterator sled error: {:?}", e);
+                Some(Err(Error::SledError(e)))
+            }
+        }
+    }
+}
+
+pub struct SledTreeProxyIterRev<T>
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
+    inner: std::iter::Rev<sled::Iter>,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> Iterator for SledTreeProxyIterRev<T>
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
+    type Item = Result<(Vec<u8>, T)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.next() {
+            None => None,
+            Some(Ok((key, value_bytes))) => {
+                let key_vec = key.to_vec();
+                match bcs::decode_from_slice(&value_bytes, bcs_config()) {
+                    Ok((value, _)) => Some(Ok((key_vec, value))),
+                    Err(e) => {
+                        error!("Iterator deserialize error for key {:?}: {:?}", key_vec, e);
+                        Some(Err(Error::SerDesError(format!("Deserialize err: {:?}", e))))
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                error!("Iterator sled error: {:?}", e);
+                Some(Err(Error::SledError(e)))
+            }
+        }
+    }
 }
 
 pub struct SledTreeProxy<T>
@@ -79,16 +292,16 @@ where
         Ok(result)
     }
 
-    pub fn iter(&self) -> sled::Iter {
-        self.tree.iter()
+    pub fn iter(&self) -> SledTreeProxyIter<T> {
+        SledTreeProxyIter::new(self.tree.iter())
     }
 
-    pub fn range<K, R>(&self, range: R) -> sled::Iter
+    pub fn range<K, R>(&self, range: R) -> SledTreeProxyIter<T>
     where
         R: std::ops::RangeBounds<K>,
         K: AsRef<[u8]>,
     {
-        self.tree.range(range)
+        SledTreeProxyIter::new(self.tree.range(range))
     }
 
     pub fn insert(&self, key: &[u8], value: &T) -> Result<Option<T>> {
