@@ -6,6 +6,81 @@ use dashmap::{DashMap, DashSet};
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
+enum SymbolTradingStorageKey {
+    KeyOfOrderIdWithClientOrderId(Option<String>),
+    KeyOfWantPriceWithClientOrderId(Option<String>),
+    KeyOfWantPriceWithExchangeOrderId(Option<u64>),
+    KeyOfOrderWithExchangeOrderId(Option<u64>),
+    KeyOfTradeWithExchangeOrderId(Option<u64>, Option<u64>), // (order_id, trade_id)
+
+    KeyOfOnOrderWithClientOrderId(Option<String>),
+}
+
+impl SymbolTradingStorageKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            SymbolTradingStorageKey::KeyOfOrderIdWithClientOrderId(client_order_id) => {
+                let mut key = Vec::with_capacity(16);
+                key.extend_from_slice(b"coi:");
+                if client_order_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(client_order_id.as_ref().unwrap().as_bytes());
+                key
+            }
+            SymbolTradingStorageKey::KeyOfWantPriceWithClientOrderId(client_order_id) => {
+                let mut key = Vec::with_capacity(16);
+                key.extend_from_slice(b"cwp:");
+                if client_order_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(client_order_id.as_ref().unwrap().as_bytes());
+                key
+            }
+            SymbolTradingStorageKey::KeyOfWantPriceWithExchangeOrderId(order_id) => {
+                let mut key = Vec::with_capacity(16);
+                key.extend_from_slice(b"ewp:");
+                if order_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(&order_id.unwrap().to_be_bytes());
+                key
+            }
+            SymbolTradingStorageKey::KeyOfOrderWithExchangeOrderId(order_id) => {
+                let mut key = Vec::with_capacity(16);
+                key.extend_from_slice(b"eo:");
+                if order_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(&order_id.unwrap().to_be_bytes());
+                key
+            }
+            SymbolTradingStorageKey::KeyOfTradeWithExchangeOrderId(order_id, trade_id) => {
+                let mut key = Vec::with_capacity(24);
+                key.extend_from_slice(b"et:");
+                if order_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(&order_id.unwrap().to_be_bytes());
+                if trade_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(&trade_id.unwrap().to_be_bytes());
+                key
+            }
+            SymbolTradingStorageKey::KeyOfOnOrderWithClientOrderId(client_order_id) => {
+                let mut key = Vec::with_capacity(16);
+                key.extend_from_slice(b"coo:");
+                if client_order_id.is_none() {
+                    return key;
+                }
+                key.extend_from_slice(client_order_id.as_ref().unwrap().as_bytes());
+                key
+            }
+        }
+    }
+}
+
 pub struct SymbolTrading {
     symbol: String,
 

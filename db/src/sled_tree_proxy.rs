@@ -282,6 +282,10 @@ where
         Ok(result)
     }
 
+    pub fn scan_prefix(&self, prefix: &[u8]) -> SledTreeProxyIter<T> {
+        SledTreeProxyIter::new(self.tree.scan_prefix(prefix))
+    }
+
     pub fn contains_key(&self, key: &[u8]) -> Result<bool> {
         debug!("Contains key: {:?}", key);
         let result = self.tree.contains_key(key).map_err(|e| {
