@@ -8,8 +8,9 @@ time = { path = "../time" }
 rate_limiter = { path = "../rate_limiter" }
 ws = { path = "../ws" }
 json = { path = "../json" }
+db = { path = "../db" }
 
-rust_decimal = { version = "1.38.0", features = ["serde"] }
+rust_decimal = { version = "1.38.0", features = ["serde", "serde-bincode"] }
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["raw_value"] }
 async-trait = "0.1.89"

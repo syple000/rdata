@@ -32,7 +32,7 @@ pub struct Kline {
     max_archived_cache_cnt: usize,
     latest_archived_kline_time: AtomicU64,
     archived_klines: ArcSwap<VecDeque<Arc<KlineData>>>,
-    db_tree: sled::Tree,
+    kline_db: db::SledTreeProxy<KlineData>,
 }
 
 pub struct KlineView {
@@ -71,21 +71,19 @@ impl Kline {
         target_building_cache_cnt: usize,
         max_archived_cache_cnt: usize,
         db: &sled::Db,
+        hook: Option<Arc<dyn db::SledTreeProxyHook<Item = KlineData> + Send + Sync>>,
     ) -> Result<Self> {
-        let db_tree = db
-            .open_tree(format!("{}_{}_kline", symbol, interval))
+        let kline_db = db::SledTreeProxy::new(db, &format!("{}_{}_kline", symbol, interval), hook)
             .map_err(|e| crate::binance::errors::BinanceError::ClientError {
-                message: format!("Failed to new Kline, open sled tree fail: {}", e),
+                message: format!("Failed to create kline db for symbol {}: {}", symbol, e),
             })?;
 
         let mut archived_klines = VecDeque::with_capacity(max_archived_cache_cnt);
         let mut latest_archived_kline_time = 0u64;
-        for item in db_tree.iter().rev().take(max_archived_cache_cnt) {
-            if let Ok((_, v)) = item {
-                if let Ok(kline) = serde_json::from_slice::<KlineData>(&v) {
-                    latest_archived_kline_time = latest_archived_kline_time.max(kline.open_time);
-                    archived_klines.push_front(Arc::new(kline));
-                }
+        for item in kline_db.iter().rev().take(max_archived_cache_cnt) {
+            if let Ok((_, kline)) = item {
+                latest_archived_kline_time = latest_archived_kline_time.max(kline.open_time);
+                archived_klines.push_front(Arc::new(kline));
             }
         }
 
@@ -98,7 +96,7 @@ impl Kline {
             max_archived_cache_cnt,
             latest_archived_kline_time: AtomicU64::new(latest_archived_kline_time),
             archived_klines: ArcSwap::from_pointee(archived_klines),
-            db_tree,
+            kline_db,
         })
     }
 
@@ -142,15 +140,13 @@ impl Kline {
         if !result.is_empty() {
             to_time = result.front().unwrap().open_time;
         }
-        self.db_tree
+        self.kline_db
             .range(..to_time.to_be_bytes())
             .rev()
             .take(limit - result.len())
             .for_each(|item| {
-                if let Ok((_, v)) = item {
-                    if let Ok(kline) = serde_json::from_slice::<KlineData>(&v) {
-                        result.push_front(Arc::new(kline));
-                    }
+                if let Ok((_, kline)) = item {
+                    result.push_front(Arc::new(kline));
                 }
             });
 
@@ -187,19 +183,21 @@ impl Kline {
 
         let mut archived_klines_ptr = self.archived_klines.load_full();
         let archived_klines = Arc::make_mut(&mut archived_klines_ptr);
-        let mut batch = sled::Batch::default();
-        for kline in to_archive_klines {
-            batch.insert(
-                &kline.open_time.to_be_bytes()[..],
-                serde_json::to_string(&*kline).unwrap().as_bytes(),
-            );
+        let mut batch = vec![];
+        let mut kline_keys = vec![];
+        for kline in to_archive_klines.iter() {
+            let kline_key = kline.open_time.to_be_bytes();
+            kline_keys.push(kline_key);
+        }
+        for (index, kline) in to_archive_klines.iter().enumerate() {
+            batch.push((&kline_keys.get(index).unwrap()[..], Some(&**kline)));
             if archived_klines.len() >= self.max_archived_cache_cnt {
                 archived_klines.pop_front().unwrap();
             }
-            archived_klines.push_back(kline);
+            archived_klines.push_back(kline.clone());
         }
         self.archived_klines.store(archived_klines_ptr);
-        self.db_tree.apply_batch(batch).unwrap();
+        self.kline_db.apply_batch(batch).unwrap();
     }
 
     pub async fn update_by_kline(&self, kline: &KlineData) -> Result<()> {

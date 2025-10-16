@@ -27,22 +27,28 @@ pub struct Depth {
     is_updated: AtomicBool,
     depth_data: ArcSwap<Option<DepthData>>,
 
-    db_tree: sled::Tree,
+    depth_db: db::SledTreeProxy<DepthData>,
 }
 
 impl Depth {
-    pub fn new(symbol: String, db: &sled::Db) -> Result<Self> {
-        let db_tree = db.open_tree(format!("{}_depth", symbol)).map_err(|e| {
-            crate::binance::errors::BinanceError::ClientError {
-                message: format!("Failed to open sled tree for depth {}: {}", symbol, e),
-            }
-        })?;
+    pub fn new(
+        symbol: String,
+        db: &sled::Db,
+        hook: Option<Arc<dyn db::SledTreeProxyHook<Item = DepthData> + Send + Sync>>,
+    ) -> Result<Self> {
+        let depth_db =
+            db::SledTreeProxy::new(db, &format!("{}_depth", symbol), hook).map_err(|e| {
+                crate::binance::errors::BinanceError::ClientError {
+                    message: format!("Failed to create depth db for symbol {}: {}", symbol, e),
+                }
+            })?;
+
         Ok(Self {
             symbol: symbol.clone(),
             stat: RwLock::new(None),
             is_updated: AtomicBool::new(false),
             depth_data: ArcSwap::from_pointee(None),
-            db_tree,
+            depth_db,
         })
     }
 
@@ -83,12 +89,8 @@ impl Depth {
             return;
         }
         let depth = (*depth).as_ref().unwrap();
-        self.db_tree
-            .insert(
-                get_current_milli_timestamp().to_string().as_bytes(),
-                serde_json::to_string(&depth).unwrap().as_bytes(),
-            )
-            .unwrap();
+        let timestamp_key = get_current_milli_timestamp().to_be_bytes();
+        self.depth_db.insert(&timestamp_key, depth).unwrap();
     }
 
     pub async fn update_by_depth(&self, depth: &DepthData) -> Result<()> {

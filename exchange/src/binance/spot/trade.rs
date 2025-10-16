@@ -7,6 +7,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+    vec,
 };
 use tokio::sync::RwLock;
 
@@ -27,7 +28,7 @@ pub struct Trade {
     max_archived_cache_cnt: usize,
     latest_archived_trade_id: AtomicU64,
     archived_trades: ArcSwap<VecDeque<Arc<AggTrade>>>,
-    db_tree: sled::Tree,
+    trade_db: db::SledTreeProxy<AggTrade>,
 }
 
 pub struct TradeView {
@@ -63,21 +64,21 @@ impl Trade {
         target_latest_cache_cnt: usize,
         max_archived_cache_cnt: usize,
         db: &sled::Db,
+        hook: Option<Arc<dyn db::SledTreeProxyHook<Item = AggTrade> + Send + Sync>>,
     ) -> Result<Self> {
-        let db_tree = db.open_tree(format!("{}_trade", symbol)).map_err(|e| {
-            crate::binance::errors::BinanceError::ClientError {
-                message: format!("Failed to new Trade, open sled tree fail: {}", e),
-            }
-        })?;
+        let trade_db =
+            db::SledTreeProxy::new(db, &format!("{}_trade", symbol), hook).map_err(|e| {
+                crate::binance::errors::BinanceError::ClientError {
+                    message: format!("Failed to create trade db for symbol {}: {}", symbol, e),
+                }
+            })?;
 
         let mut archived_trades = VecDeque::with_capacity(max_archived_cache_cnt);
         let mut latest_archived_trade_id = 0u64;
-        for item in db_tree.iter().rev().take(max_archived_cache_cnt) {
-            if let Ok((_, v)) = item {
-                if let Ok(trade) = serde_json::from_slice::<AggTrade>(&v) {
-                    latest_archived_trade_id = latest_archived_trade_id.max(trade.agg_trade_id);
-                    archived_trades.push_front(Arc::new(trade));
-                }
+        for item in trade_db.iter().rev().take(max_archived_cache_cnt) {
+            if let Ok((_, trade)) = item {
+                latest_archived_trade_id = latest_archived_trade_id.max(trade.agg_trade_id);
+                archived_trades.push_front(Arc::new(trade));
             }
         }
 
@@ -89,7 +90,7 @@ impl Trade {
             latest_archived_trade_id: AtomicU64::new(latest_archived_trade_id),
             latest_trades: RwLock::new(VecDeque::with_capacity(max_latest_cache_cnt)),
             archived_trades: ArcSwap::from_pointee(archived_trades),
-            db_tree,
+            trade_db: trade_db,
         })
     }
 
@@ -143,15 +144,13 @@ impl Trade {
         if !result.is_empty() {
             to_id = result.front().unwrap().agg_trade_id;
         }
-        self.db_tree
+        self.trade_db
             .range(..to_id.to_be_bytes())
             .rev()
             .take(limit - result.len())
             .for_each(|item| {
-                if let Ok((_, v)) = item {
-                    if let Ok(trade) = serde_json::from_slice::<AggTrade>(&v) {
-                        result.push_front(Arc::new(trade));
-                    }
+                if let Ok((_, trade)) = item {
+                    result.push_front(Arc::new(trade));
                 }
             });
 
@@ -169,6 +168,7 @@ impl Trade {
             .store(archived_trade_id, Ordering::Release);
 
         let mut to_archive_trades = vec![];
+        let mut to_archive_trade_ids = vec![];
         loop {
             let front = latest_trades.front();
             if front.is_none() {
@@ -183,7 +183,9 @@ impl Trade {
                 continue;
             }
             let trade = front.trade.unwrap();
+            let trade_id = trade.agg_trade_id.to_be_bytes();
             to_archive_trades.push(trade);
+            to_archive_trade_ids.push(trade_id);
         }
 
         if to_archive_trades.is_empty() {
@@ -192,19 +194,19 @@ impl Trade {
 
         let mut archived_trades_ptr = self.archived_trades.load_full();
         let archived_trades = Arc::make_mut(&mut archived_trades_ptr);
-        let mut batch = sled::Batch::default();
-        for trade in to_archive_trades {
-            batch.insert(
-                &trade.agg_trade_id.to_be_bytes()[..],
-                serde_json::to_string(&*trade).unwrap().as_bytes(),
-            );
+        let mut batch = vec![];
+        for (index, trade) in to_archive_trades.iter().enumerate() {
+            batch.push((
+                &to_archive_trade_ids.get(index).unwrap()[..],
+                Some(&**trade),
+            ));
             if archived_trades.len() >= self.max_archived_cache_cnt {
                 archived_trades.pop_front().unwrap();
             }
             archived_trades.push_back(trade.clone());
         }
         self.archived_trades.store(archived_trades_ptr);
-        self.db_tree.apply_batch(batch).unwrap();
+        self.trade_db.apply_batch(batch).unwrap();
     }
 
     pub async fn update(&self, trade: &AggTrade) -> Result<bool> {

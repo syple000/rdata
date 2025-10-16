@@ -34,6 +34,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         );
         assert!(result.is_ok());
     }
@@ -46,6 +47,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -81,6 +83,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -107,6 +110,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -138,6 +142,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -174,6 +179,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -220,6 +226,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -263,6 +270,7 @@ mod tests {
             500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -319,6 +327,7 @@ mod tests {
             5,
             5,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -356,6 +365,7 @@ mod tests {
             5,
             5,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -401,6 +411,7 @@ mod tests {
             50,
             100,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -434,6 +445,7 @@ mod tests {
             50,
             100,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 
@@ -466,6 +478,7 @@ mod tests {
             50,
             100,
             &sled::Config::default().temporary(true).open().unwrap(),
+            None,
         )
         .unwrap();
 

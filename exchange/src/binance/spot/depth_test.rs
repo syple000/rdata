@@ -61,14 +61,14 @@ mod tests {
     #[tokio::test]
     async fn test_depth_new() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let result = Depth::new("BTCUSDT".to_string(), &db);
+        let result = Depth::new("BTCUSDT".to_string(), &db, None);
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_depth_get_depth_empty() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         let result = depth.get_depth().await;
         assert!(result.is_none());
@@ -77,7 +77,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_basic() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         let depth_data = create_test_depth_data(
             "BTCUSDT",
@@ -122,7 +122,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_wrong_symbol() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         let depth_data = create_test_depth_data(
             "ETHUSDT",
@@ -138,7 +138,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_basic() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Initialize with depth data
         let depth_data = create_test_depth_data(
@@ -190,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_without_init() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         let depth_update = create_test_depth_update(
             "BTCUSDT",
@@ -208,7 +208,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_wrong_symbol() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Initialize with depth data
         let depth_data = create_test_depth_data(
@@ -236,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_old_data_ignored() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Initialize with depth data
         let depth_data = create_test_depth_data(
@@ -269,7 +269,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_out_of_order() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Initialize with depth data
         let depth_data = create_test_depth_data(
@@ -297,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_remove_level() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Initialize with depth data
         let depth_data = create_test_depth_data(
@@ -340,7 +340,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_update_by_depth_update_sequential() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Initialize with depth data
         let depth_data = create_test_depth_data(
@@ -384,7 +384,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_archive() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         let depth_data = create_test_depth_data(
             "BTCUSDT",
@@ -401,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_archive_empty() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Archive empty depth should not panic
         depth.archive().await;
@@ -410,7 +410,7 @@ mod tests {
     #[tokio::test]
     async fn test_depth_sorting() {
         let db = sled::Config::default().temporary(true).open().unwrap();
-        let depth = Depth::new("BTCUSDT".to_string(), &db).unwrap();
+        let depth = Depth::new("BTCUSDT".to_string(), &db, None).unwrap();
 
         // Create depth data with unsorted prices
         let depth_data = create_test_depth_data(
