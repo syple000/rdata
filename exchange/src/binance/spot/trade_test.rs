@@ -183,6 +183,7 @@ mod tests {
             false,
         );
         trade_manager.update(&trade1).await.unwrap();
+        trade_manager.archive(1000000000000).await;
 
         // Try to add older trade
         let trade2 = create_test_agg_trade(
@@ -313,7 +314,7 @@ mod tests {
         )
         .unwrap();
 
-        for i in 1..=20 {
+        for i in 10..=20 {
             let trade = create_test_agg_trade(
                 "BTCUSDT",
                 1000 + i,
@@ -326,6 +327,20 @@ mod tests {
             );
             trade_manager.update(&trade).await.unwrap();
         }
+        for i in 1..10 {
+            let trade = create_test_agg_trade(
+                "BTCUSDT",
+                1000 + i,
+                "50000.0",
+                "1.0",
+                100 + i - 1,
+                100 + i - 1,
+                1000000000000 + i * 1000,
+                false,
+            );
+            trade_manager.update(&trade).await.unwrap();
+        }
+        trade_manager.archive(1011).await;
 
         let view_before = trade_manager.get_trades().await;
         assert_eq!(view_before.len(), 14);
