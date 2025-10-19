@@ -32,7 +32,7 @@ pub struct Depth {
 
 impl Depth {
     pub fn new(
-        symbol: String,
+        symbol: &str,
         db: &sled::Db,
         hook: Option<Arc<dyn db::SledTreeProxyHook<Item = DepthData> + Send + Sync>>,
     ) -> Result<Self> {
@@ -44,7 +44,7 @@ impl Depth {
             })?;
 
         Ok(Self {
-            symbol: symbol.clone(),
+            symbol: symbol.to_string(),
             stat: RwLock::new(None),
             is_updated: AtomicBool::new(false),
             depth_data: ArcSwap::from_pointee(None),

@@ -2,6 +2,8 @@ pub mod models;
 pub mod requests;
 pub mod responses;
 
+pub mod client;
+
 mod trading;
 #[cfg(test)]
 mod trading_test;
