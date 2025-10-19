@@ -1,6 +1,5 @@
 use crate::binance::{errors::Result, spot::models::AggTrade};
 use arc_swap::ArcSwap;
-use log::warn;
 use std::{
     collections::VecDeque,
     sync::{
@@ -16,13 +15,9 @@ struct TradeStat {
     trade: Option<Arc<AggTrade>>,
 }
 
-// 来源1：websocket推送
-// 来源2：api获取（初始化 或 从latest_archived_trade_id开始获取，如果该值不存在，获取最新的trades，使用最新的trade id更新latest_archived_trade_id）
 pub struct Trade {
     symbol: String,
 
-    max_latest_cache_cnt: usize, // 长时间未手动进行归档，在触发容量阈值后，自动归档
-    target_latest_cache_cnt: usize, // 归档时，将数据长度缩减到该值
     latest_trades: RwLock<VecDeque<TradeStat>>,
 
     max_archived_cache_cnt: usize,
@@ -60,8 +55,6 @@ impl TradeView {
 impl Trade {
     pub fn new(
         symbol: &str,
-        max_latest_cache_cnt: usize,
-        target_latest_cache_cnt: usize,
         max_archived_cache_cnt: usize,
         db: &sled::Db,
         hook: Option<Arc<dyn db::SledTreeProxyHook<Item = AggTrade> + Send + Sync>>,
@@ -72,6 +65,11 @@ impl Trade {
                     message: format!("Failed to create trade db for symbol {}: {}", symbol, e),
                 }
             })?;
+        if max_archived_cache_cnt == 0 {
+            return Err(crate::binance::errors::BinanceError::ClientError {
+                message: "max_archived_cache_cnt must be greater than 0".to_string(),
+            });
+        }
 
         let mut archived_trades = VecDeque::with_capacity(max_archived_cache_cnt);
         let mut latest_archived_trade_id = 0u64;
@@ -84,23 +82,12 @@ impl Trade {
 
         Ok(Self {
             symbol: symbol.to_string(),
-            max_latest_cache_cnt,
-            target_latest_cache_cnt,
+            latest_trades: RwLock::new(VecDeque::new()),
             max_archived_cache_cnt,
             latest_archived_trade_id: AtomicU64::new(latest_archived_trade_id),
-            latest_trades: RwLock::new(VecDeque::with_capacity(max_latest_cache_cnt)),
             archived_trades: ArcSwap::from_pointee(archived_trades),
             trade_db: trade_db,
         })
-    }
-
-    pub fn get_latest_archived_trade_id(&self) -> Option<u64> {
-        let id = self.latest_archived_trade_id.load(Ordering::Relaxed);
-        if id == 0 {
-            None
-        } else {
-            Some(id)
-        }
     }
 
     pub async fn get_trades(&self) -> TradeView {
@@ -216,48 +203,46 @@ impl Trade {
             });
         }
 
+        if trade.agg_trade_id <= self.latest_archived_trade_id.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+
         let mut latest_trades = self.latest_trades.write().await;
-        let mut index = 0;
-        if let Some(stat) = latest_trades.front() {
-            if trade.agg_trade_id <= stat.id {
-                return Ok(false);
-            }
-            index = (trade.agg_trade_id - stat.id) as usize;
+
+        if latest_trades.is_empty() {
+            latest_trades.push_back(TradeStat {
+                id: trade.agg_trade_id,
+                trade: Some(Arc::new(trade.clone())),
+            });
+            return Ok(true);
         }
 
-        if index < latest_trades.len() {
-            let stat = &mut latest_trades[index];
-            if stat.trade.is_none() {
-                stat.trade = Some(Arc::new(trade.clone()));
-                return Ok(true);
-            } else {
-                return Ok(false);
+        while let Some(stat) = latest_trades.back() {
+            if stat.id >= trade.agg_trade_id {
+                break;
             }
-        }
-
-        while latest_trades.len() < index {
             let id = latest_trades.back().unwrap().id + 1;
             latest_trades.push_back(TradeStat { id, trade: None });
         }
-        latest_trades.push_back(TradeStat {
-            id: trade.agg_trade_id,
-            trade: Some(Arc::new(trade.clone())),
-        });
-        drop(latest_trades);
-
-        if trade
-            .agg_trade_id
-            .saturating_sub(self.latest_archived_trade_id.load(Ordering::Relaxed))
-            >= self.max_latest_cache_cnt as u64
-        {
-            warn!(
-                "Trade latest cache cnt exceed max {}, archive to {}",
-                self.max_latest_cache_cnt, self.target_latest_cache_cnt
-            );
-            self.archive(trade.agg_trade_id - self.target_latest_cache_cnt as u64)
-                .await;
+        while let Some(stat) = latest_trades.front() {
+            if stat.id <= trade.agg_trade_id {
+                break;
+            }
+            let id = latest_trades.front().unwrap().id - 1;
+            latest_trades.push_front(TradeStat { id, trade: None });
         }
 
-        Ok(true)
+        let mut index = 0;
+        if let Some(stat) = latest_trades.front() {
+            index = (trade.agg_trade_id - stat.id) as usize;
+        }
+
+        let stat = &mut latest_trades[index];
+        if stat.trade.is_none() {
+            stat.trade = Some(Arc::new(trade.clone()));
+            return Ok(true);
+        } else {
+            return Ok(false);
+        }
     }
 }

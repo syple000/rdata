@@ -83,7 +83,7 @@ impl SpotClient {
             for symbol in symbols.iter() {
                 let depth = Arc::new(Depth::new(symbol, &config.db, None)?);
                 depths.insert(symbol.clone(), depth);
-                let trade = Arc::new(Trade::new(symbol, 2048, 1024, 2048, &config.db, None)?);
+                let trade = Arc::new(Trade::new(symbol, 2048, &config.db, None)?);
                 trades.insert(symbol.clone(), trade);
                 if let Some(intervals) = config.kline_intervals.as_ref() {
                     for interval in intervals.iter() {

@@ -30,8 +30,6 @@ mod tests {
     async fn test_trade_new() {
         let result = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -43,8 +41,6 @@ mod tests {
     async fn test_trade_update_basic() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -79,8 +75,6 @@ mod tests {
     async fn test_trade_update_wrong_symbol() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -106,8 +100,6 @@ mod tests {
     async fn test_trade_update_sequential() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -138,8 +130,6 @@ mod tests {
     async fn test_trade_update_duplicate() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -175,8 +165,6 @@ mod tests {
     async fn test_trade_update_old_trade_ignored() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -222,8 +210,6 @@ mod tests {
     async fn test_trade_update_with_gap() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -266,8 +252,6 @@ mod tests {
     async fn test_trade_update_fill_gap() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            1000,
-            500,
             5000,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -323,8 +307,6 @@ mod tests {
     async fn test_trade_archive() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            10,
-            5,
             5,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -361,8 +343,6 @@ mod tests {
     async fn test_trade_archive_idempotent() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            10,
-            5,
             5,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
@@ -408,8 +388,6 @@ mod tests {
         let trade_manager = Trade::new(
             "BTCUSDT",
             100,
-            50,
-            100,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
         )
@@ -442,8 +420,6 @@ mod tests {
         let trade_manager = Trade::new(
             "BTCUSDT",
             100,
-            50,
-            100,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
         )
@@ -474,8 +450,6 @@ mod tests {
     async fn test_trade_is_buyer_maker() {
         let trade_manager = Trade::new(
             "BTCUSDT",
-            100,
-            50,
             100,
             &sled::Config::default().temporary(true).open().unwrap(),
             None,
