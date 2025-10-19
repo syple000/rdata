@@ -3,6 +3,8 @@ pub mod requests;
 pub mod responses;
 
 mod trading;
+#[cfg(test)]
+mod trading_test;
 
 mod depth;
 #[cfg(test)]
