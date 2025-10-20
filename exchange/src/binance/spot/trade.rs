@@ -148,8 +148,10 @@ impl Trade {
         if archived_trade_id <= self.latest_archived_trade_id.load(Ordering::Relaxed) {
             return;
         }
-
         let mut latest_trades = self.latest_trades.write().await;
+        if archived_trade_id <= self.latest_archived_trade_id.load(Ordering::Relaxed) {
+            return;
+        }
 
         self.latest_archived_trade_id
             .store(archived_trade_id, Ordering::Release);
@@ -206,8 +208,10 @@ impl Trade {
         if trade.agg_trade_id <= self.latest_archived_trade_id.load(Ordering::Relaxed) {
             return Ok(false);
         }
-
         let mut latest_trades = self.latest_trades.write().await;
+        if trade.agg_trade_id <= self.latest_archived_trade_id.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
 
         if latest_trades.is_empty() {
             latest_trades.push_back(TradeStat {
@@ -232,10 +236,7 @@ impl Trade {
             latest_trades.push_front(TradeStat { id, trade: None });
         }
 
-        let mut index = 0;
-        if let Some(stat) = latest_trades.front() {
-            index = (trade.agg_trade_id - stat.id) as usize;
-        }
+        let index = (trade.agg_trade_id - latest_trades.front().unwrap().id) as usize;
 
         let stat = &mut latest_trades[index];
         if stat.trade.is_none() {
