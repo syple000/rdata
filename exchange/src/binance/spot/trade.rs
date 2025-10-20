@@ -144,6 +144,10 @@ impl Trade {
         return result;
     }
 
+    pub fn get_latest_archived_trade_id(&self) -> u64 {
+        self.latest_archived_trade_id.load(Ordering::Relaxed)
+    }
+
     pub async fn archive(&self, archived_trade_id: u64) {
         if archived_trade_id <= self.latest_archived_trade_id.load(Ordering::Relaxed) {
             return;
@@ -154,7 +158,7 @@ impl Trade {
         }
 
         self.latest_archived_trade_id
-            .store(archived_trade_id, Ordering::Release);
+            .store(archived_trade_id, Ordering::Relaxed);
 
         let mut to_archive_trades = vec![];
         let mut to_archive_trade_ids = vec![];
