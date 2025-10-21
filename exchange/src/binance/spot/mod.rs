@@ -2,37 +2,19 @@ pub mod models;
 pub mod requests;
 pub mod responses;
 
-pub mod client;
-
-mod trading;
-#[cfg(test)]
-mod trading_test;
-
-mod depth;
-#[cfg(test)]
-mod depth_test;
-
-mod kline;
-#[cfg(test)]
-mod kline_test;
-
-mod trade;
-#[cfg(test)]
-mod trade_test;
-
-mod market_api;
+pub mod market_api;
 #[cfg(test)]
 mod market_api_test;
 
-mod market_stream;
+pub mod market_stream;
 #[cfg(test)]
 mod market_stream_test;
 
-mod trade_api;
+pub mod trade_api;
 #[cfg(test)]
 mod trade_api_test;
 
-mod trade_stream;
+pub mod trade_stream;
 #[cfg(test)]
 mod trade_stream_test;
 
