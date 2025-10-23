@@ -264,6 +264,50 @@ impl MarketApi {
         })
     }
 
+    pub async fn get_ticker_24hr(
+        &self,
+        req: GetTicker24hrRequest,
+    ) -> Result<GetTicker24hrResponse> {
+        // 根据请求参数计算权重
+        let weight = if req.symbol.is_some() {
+            2
+        } else if let Some(ref symbols) = req.symbols {
+            let count = symbols.len();
+            match count {
+                1..=20 => 2,
+                21..=100 => 40,
+                _ => 80,
+            }
+        } else {
+            80 // 不提供symbol参数
+        };
+
+        let mut params = Vec::new();
+
+        if let Some(symbol) = &req.symbol {
+            params.push(("symbol", symbol.to_string()));
+        } else if let Some(symbols) = &req.symbols {
+            let symbols_json = serde_json::to_string(symbols).map_err(|e| {
+                error!("Serialize symbols error: {:?}", e);
+                BinanceError::ParseResultError {
+                    message: e.to_string(),
+                }
+            })?;
+            params.push(("symbols", symbols_json));
+        }
+
+        let text = self
+            .send_request(reqwest::Method::GET, "/api/v3/ticker/24hr", params, weight)
+            .await?;
+
+        parse_ticker_24hr(&req, &text).map_err(|e| {
+            error!("Parse result: {:?} error: {:?}", text, e);
+            BinanceError::ParseResultError {
+                message: e.to_string(),
+            }
+        })
+    }
+
     async fn send_request(
         &self,
         method: reqwest::Method,

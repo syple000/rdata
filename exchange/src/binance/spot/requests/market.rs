@@ -110,3 +110,8 @@ pub struct GetExchangeInfoRequest {
     pub symbol: Option<String>,
     pub symbols: Option<Vec<String>>,
 }
+
+pub struct GetTicker24hrRequest {
+    pub symbol: Option<String>,
+    pub symbols: Option<Vec<String>>,
+}

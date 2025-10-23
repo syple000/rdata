@@ -1,3 +1,5 @@
+use crate::binance::spot::requests::GetTicker24hrRequest;
+
 use super::super::models::market::*;
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -358,4 +360,88 @@ impl From<ExchangeInfoRaw> for ExchangeInfo {
 pub fn parse_exchange_info(data: &str) -> Result<ExchangeInfo, serde_json::Error> {
     let raw: ExchangeInfoRaw = serde_json::from_str(data)?;
     Ok(raw.into())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Ticker24hrRaw {
+    pub symbol: String,
+    #[serde(rename = "priceChange")]
+    pub price_change: String,
+    #[serde(rename = "priceChangePercent")]
+    pub price_change_percent: String,
+    #[serde(rename = "weightedAvgPrice")]
+    pub weighted_avg_price: String,
+    #[serde(rename = "prevClosePrice")]
+    pub prev_close_price: String,
+    #[serde(rename = "lastPrice")]
+    pub last_price: String,
+    #[serde(rename = "lastQty")]
+    pub last_qty: String,
+    #[serde(rename = "bidPrice")]
+    pub bid_price: String,
+    #[serde(rename = "bidQty")]
+    pub bid_qty: String,
+    #[serde(rename = "askPrice")]
+    pub ask_price: String,
+    #[serde(rename = "askQty")]
+    pub ask_qty: String,
+    #[serde(rename = "openPrice")]
+    pub open_price: String,
+    #[serde(rename = "highPrice")]
+    pub high_price: String,
+    #[serde(rename = "lowPrice")]
+    pub low_price: String,
+    pub volume: String,
+    #[serde(rename = "quoteVolume")]
+    pub quote_volume: String,
+    #[serde(rename = "openTime")]
+    pub open_time: u64,
+    #[serde(rename = "closeTime")]
+    pub close_time: u64,
+    #[serde(rename = "firstId")]
+    pub first_id: u64,
+    #[serde(rename = "lastId")]
+    pub last_id: u64,
+    pub count: u64,
+}
+
+impl From<Ticker24hrRaw> for Ticker24hr {
+    fn from(raw: Ticker24hrRaw) -> Self {
+        Ticker24hr {
+            symbol: raw.symbol,
+            price_change: raw.price_change.parse().unwrap_or_default(),
+            price_change_percent: raw.price_change_percent.parse().unwrap_or_default(),
+            weighted_avg_price: raw.weighted_avg_price.parse().unwrap_or_default(),
+            prev_close_price: raw.prev_close_price.parse().unwrap_or_default(),
+            last_price: raw.last_price.parse().unwrap_or_default(),
+            last_qty: raw.last_qty.parse().unwrap_or_default(),
+            bid_price: raw.bid_price.parse().unwrap_or_default(),
+            bid_qty: raw.bid_qty.parse().unwrap_or_default(),
+            ask_price: raw.ask_price.parse().unwrap_or_default(),
+            ask_qty: raw.ask_qty.parse().unwrap_or_default(),
+            open_price: raw.open_price.parse().unwrap_or_default(),
+            high_price: raw.high_price.parse().unwrap_or_default(),
+            low_price: raw.low_price.parse().unwrap_or_default(),
+            volume: raw.volume.parse().unwrap_or_default(),
+            quote_volume: raw.quote_volume.parse().unwrap_or_default(),
+            open_time: raw.open_time,
+            close_time: raw.close_time,
+            first_id: raw.first_id,
+            last_id: raw.last_id,
+            count: raw.count,
+        }
+    }
+}
+
+pub fn parse_ticker_24hr(
+    req: &GetTicker24hrRequest,
+    data: &str,
+) -> Result<Vec<Ticker24hr>, serde_json::Error> {
+    if req.symbol.is_some() {
+        let raw = serde_json::from_str::<Ticker24hrRaw>(data)?;
+        Ok(vec![raw.into()])
+    } else {
+        let raw_tickers: Vec<Ticker24hrRaw> = serde_json::from_str(data)?;
+        Ok(raw_tickers.into_iter().map(|raw| raw.into()).collect())
+    }
 }
