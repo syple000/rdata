@@ -21,6 +21,7 @@ enum MarketStreamType {
     UpdateDepth,
     AggTrade,
     Kline,
+    Ticker,
 }
 
 #[derive(Clone)]
@@ -40,6 +41,7 @@ pub struct MarketStream {
     update_depth_cb: Option<Arc<dyn Fn(DepthUpdate) -> Fut + Send + Sync + 'static>>,
     agg_trade_cb: Option<Arc<dyn Fn(AggTrade) -> Fut + Send + Sync + 'static>>,
     kline_cb: Option<Arc<dyn Fn(KlineData) -> Fut + Send + Sync + 'static>>,
+    ticker_cb: Option<Arc<dyn Fn(Ticker24hr) -> Fut + Send + Sync + 'static>>,
 
     // ws客户端
     client: Option<ws::Client>,
@@ -60,6 +62,7 @@ impl MarketStream {
             update_depth_cb: None,
             agg_trade_cb: None,
             kline_cb: None,
+            ticker_cb: None,
             client: None,
         }
     }
@@ -94,6 +97,16 @@ impl MarketStream {
         );
     }
 
+    pub fn subscribe_ticker(&mut self, symbol: &str) {
+        self.sub_details.insert(
+            format!("{}@ticker", symbol.to_lowercase()),
+            SubDetail {
+                stream_type: MarketStreamType::Ticker,
+                symbol: symbol.to_string(),
+            },
+        );
+    }
+
     pub fn register_depth_update_callback<F>(&mut self, cb: F)
     where
         F: Fn(DepthUpdate) -> Fut + Send + Sync + 'static,
@@ -115,12 +128,20 @@ impl MarketStream {
         self.kline_cb = Some(Arc::new(cb));
     }
 
+    pub fn register_ticker_callback<F>(&mut self, cb: F)
+    where
+        F: Fn(Ticker24hr) -> Fut + Send + Sync + 'static,
+    {
+        self.ticker_cb = Some(Arc::new(cb));
+    }
+
     // 完成ws连接并订阅
     pub async fn init(&mut self) -> Result<CancellationToken> {
         let sub_details = Arc::new(self.sub_details.clone());
         let update_depth_cb = self.update_depth_cb.clone();
         let agg_trade_cb = self.agg_trade_cb.clone();
         let kline_cb = self.kline_cb.clone();
+        let ticker_cb = self.ticker_cb.clone();
         let mut config = ws::Config::default(
             self.url.clone(),
             Arc::new(Self::calc_recv_msg_id),
@@ -129,8 +150,17 @@ impl MarketStream {
                 let update_depth_cb = update_depth_cb.clone();
                 let agg_trade_cb = agg_trade_cb.clone();
                 let kline_cb = kline_cb.clone();
+                let ticker_cb = ticker_cb.clone();
                 Box::pin(async move {
-                    Self::handle(msg, sub_details, update_depth_cb, agg_trade_cb, kline_cb).await
+                    Self::handle(
+                        msg,
+                        sub_details,
+                        update_depth_cb,
+                        agg_trade_cb,
+                        kline_cb,
+                        ticker_cb,
+                    )
+                    .await
                 })
             }),
         );
@@ -235,6 +265,14 @@ impl MarketStream {
                     + 'static,
             >,
         >,
+        ticker_cb: Option<
+            Arc<
+                dyn Fn(Ticker24hr) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
     ) -> ws::Result<()> {
         let text = match msg {
             RecvMsg::Text { msg_id: _, content } => content,
@@ -304,6 +342,18 @@ impl MarketStream {
                 })?;
                 if let Some(cb) = kline_cb {
                     cb(kline).await.map_err(|e| ws::WsError::HandleError {
+                        message: e.to_string(),
+                    })?;
+                }
+            }
+            MarketStreamType::Ticker => {
+                let ticker = parse_ticker_stream(stream_msg.data.get()).map_err(|e| {
+                    ws::WsError::HandleError {
+                        message: e.to_string(),
+                    }
+                })?;
+                if let Some(cb) = ticker_cb {
+                    cb(ticker).await.map_err(|e| ws::WsError::HandleError {
                         message: e.to_string(),
                     })?;
                 }

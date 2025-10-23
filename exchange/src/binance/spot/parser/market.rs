@@ -365,6 +365,89 @@ pub fn parse_kline_stream(data: &str) -> Result<KlineData, serde_json::Error> {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TickerStreamRaw {
+    #[serde(rename = "e")]
+    event_type: String, // 事件类型
+    #[serde(rename = "E")]
+    event_time: u64, // 事件时间
+    #[serde(rename = "s")]
+    symbol: String, // 交易对
+    #[serde(rename = "p")]
+    price_change: Decimal, // 24小时价格变化
+    #[serde(rename = "P")]
+    price_change_percent: Decimal, // 24小时价格变化（百分比）
+    #[serde(rename = "w")]
+    weighted_avg_price: Decimal, // 平均价格
+    #[serde(rename = "x")]
+    prev_close_price: Decimal, // 整整24小时之前，向前数的最后一次成交价格
+    #[serde(rename = "c")]
+    last_price: Decimal, // 最新成交价格
+    #[serde(rename = "Q")]
+    last_qty: Decimal, // 最新成交交易的成交量
+    #[serde(rename = "b")]
+    bid_price: Decimal, // 目前最高买单价
+    #[serde(rename = "B")]
+    bid_qty: Decimal, // 目前最高买单价的挂单量
+    #[serde(rename = "a")]
+    ask_price: Decimal, // 目前最低卖单价
+    #[serde(rename = "A")]
+    ask_qty: Decimal, // 目前最低卖单价的挂单量
+    #[serde(rename = "o")]
+    open_price: Decimal, // 整整24小时前，向后数的第一次成交价格
+    #[serde(rename = "h")]
+    high_price: Decimal, // 24小时内最高成交价
+    #[serde(rename = "l")]
+    low_price: Decimal, // 24小时内最低成交价
+    #[serde(rename = "v")]
+    volume: Decimal, // 24小时内成交量
+    #[serde(rename = "q")]
+    quote_volume: Decimal, // 24小时内成交额
+    #[serde(rename = "O")]
+    open_time: u64, // 统计开始时间
+    #[serde(rename = "C")]
+    close_time: u64, // 统计结束时间
+    #[serde(rename = "F")]
+    first_id: u64, // 24小时内第一笔成交交易ID
+    #[serde(rename = "L")]
+    last_id: u64, // 24小时内最后一笔成交交易ID
+    #[serde(rename = "n")]
+    count: u64, // 24小时内成交数
+}
+
+impl From<TickerStreamRaw> for Ticker24hr {
+    fn from(raw: TickerStreamRaw) -> Self {
+        Ticker24hr {
+            symbol: raw.symbol,
+            price_change: raw.price_change,
+            price_change_percent: raw.price_change_percent,
+            weighted_avg_price: raw.weighted_avg_price,
+            prev_close_price: raw.prev_close_price,
+            last_price: raw.last_price,
+            last_qty: raw.last_qty,
+            bid_price: raw.bid_price,
+            bid_qty: raw.bid_qty,
+            ask_price: raw.ask_price,
+            ask_qty: raw.ask_qty,
+            open_price: raw.open_price,
+            high_price: raw.high_price,
+            low_price: raw.low_price,
+            volume: raw.volume,
+            quote_volume: raw.quote_volume,
+            open_time: raw.open_time,
+            close_time: raw.close_time,
+            first_id: raw.first_id,
+            last_id: raw.last_id,
+            count: raw.count,
+        }
+    }
+}
+
+pub fn parse_ticker_stream(data: &str) -> Result<Ticker24hr, serde_json::Error> {
+    let raw: TickerStreamRaw = serde_json::from_str(data)?;
+    Ok(raw.into())
+}
+
+#[derive(Debug, Deserialize)]
 pub struct FilterRaw {
     #[serde(rename = "filterType")]
     pub filter_type: String,

@@ -114,3 +114,43 @@ async fn test_market_stream_kline() {
     println!("Received {} klines", klines.len());
     json::dump(&*klines, "klines_stream.json").unwrap();
 }
+
+#[tokio::test]
+async fn test_market_stream_ticker() {
+    let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .is_test(true)
+        .try_init();
+
+    let mut market_stream = MarketStream::new(
+        SPOT_WSS_URL.to_string() + "/stream",
+        //None,
+        Some("socks5://127.0.0.1:10808".to_string()),
+        None,
+    );
+
+    market_stream.subscribe_ticker("BTCUSDT");
+
+    let tickers = Arc::new(Mutex::new(Vec::<super::models::market::Ticker24hr>::new()));
+    let tickers_clone = tickers.clone();
+    market_stream.register_ticker_callback(move |ticker| {
+        let tickers_clone = tickers_clone.clone();
+        Box::pin(async move {
+            let mut tickers = tickers_clone.lock().await;
+            println!(
+                "Received Ticker: symbol={}, last_price={}, price_change={}, price_change_percent={}, volume={}, quote_volume={}, high={}, low={}, open={}",
+                ticker.symbol, ticker.last_price, ticker.price_change, ticker.price_change_percent,
+                ticker.volume, ticker.quote_volume, ticker.high_price, ticker.low_price, ticker.open_price
+            );
+            tickers.push(ticker);
+            Ok(())
+        })
+    });
+
+    market_stream.init().await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+    let tickers = tickers.lock().await;
+    assert!(!tickers.is_empty());
+    println!("Received {} tickers", tickers.len());
+    json::dump(&*tickers, "tickers_stream.json").unwrap();
+}
