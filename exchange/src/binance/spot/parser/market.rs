@@ -2,47 +2,96 @@ use crate::binance::spot::requests::GetTicker24hrRequest;
 
 use super::super::models::market::*;
 use rust_decimal::Decimal;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+
+// 允许负数的 u64 反序列化
+fn de_u64_allow_negative<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Visitor;
+    use std::fmt;
+
+    struct U64Visitor;
+
+    impl<'de> Visitor<'de> for U64Visitor {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a u64 or i64")
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            if v < 0 {
+                Ok(0)
+            } else {
+                Ok(v as u64)
+            }
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v)
+        }
+    }
+
+    deserializer.deserialize_any(U64Visitor)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct KlineDataRaw(
-    u64,     // open time
-    Decimal, // open price
-    Decimal, // high price
-    Decimal, // low price
-    Decimal, // close price
-    Decimal, // volume
-    u64,     // close time
-    Decimal, // quote volume
-    u64,     // number of trades
-    Decimal, // taker buy volume
-    Decimal, // taker buy quote
-    Value,   // ignore this field
+    u64,     // 0: open time
+    Decimal, // 1: open price
+    Decimal, // 2: high price
+    Decimal, // 3: low price
+    Decimal, // 4: close price
+    Decimal, // 5: volume
+    u64,     // 6: close time
+    Decimal, // 7: quote volume
+    u64,     // 8: number of trades
+    Decimal, // 9: taker buy base volume
+    Decimal, // 10: taker buy quote volume
+    Value,   // 11: ignore this field
 );
 
-impl From<(String, KlineDataRaw)> for KlineData {
-    fn from((symbol, raw): (String, KlineDataRaw)) -> Self {
+impl From<(String, String, KlineDataRaw)> for KlineData {
+    fn from((symbol, interval, raw): (String, String, KlineDataRaw)) -> Self {
         KlineData {
             symbol,
+            interval,
             open_time: raw.0,
+            close_time: raw.6,
             open: raw.1,
             high: raw.2,
             low: raw.3,
             close: raw.4,
             volume: raw.5,
-            close_time: raw.6,
             quote_volume: raw.7,
             trade_count: raw.8,
+            taker_buy_volume: raw.9,
+            taker_buy_quote_volume: raw.10,
+            first_trade_id: 0, // Not available in REST API response
+            last_trade_id: 0,  // Not available in REST API response
+            is_closed: false,  // Not available in REST API response
         }
     }
 }
 
-pub fn parse_klines(symbol: String, data: &str) -> Result<Vec<KlineData>, serde_json::Error> {
+pub fn parse_klines(
+    symbol: String,
+    interval: String,
+    data: &str,
+) -> Result<Vec<KlineData>, serde_json::Error> {
     let raw_klines: Vec<KlineDataRaw> = serde_json::from_str(data)?;
     Ok(raw_klines
         .into_iter()
-        .map(|raw| (symbol.clone(), raw).into())
+        .map(|raw| (symbol.clone(), interval.clone(), raw).into())
         .collect())
 }
 
@@ -234,6 +283,84 @@ impl From<AggTradeStreamRaw> for AggTrade {
 
 pub fn parse_agg_trade_stream(data: &str) -> Result<AggTrade, serde_json::Error> {
     let raw: AggTradeStreamRaw = serde_json::from_str(data)?;
+    Ok(raw.into())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KlineStreamDataRaw {
+    #[serde(rename = "t")]
+    open_time: u64, // K线开始时间
+    #[serde(rename = "T")]
+    close_time: u64, // K线结束时间
+    #[serde(rename = "s")]
+    symbol: String, // 交易对
+    #[serde(rename = "i")]
+    interval: String, // K线间隔
+    #[serde(rename = "f", deserialize_with = "de_u64_allow_negative")]
+    first_trade_id: u64, // 这根K线期间第一笔成交ID
+    #[serde(rename = "L", deserialize_with = "de_u64_allow_negative")]
+    last_trade_id: u64, // 这根K线期间末一笔成交ID
+    #[serde(rename = "o")]
+    open: Decimal, // 开盘价
+    #[serde(rename = "c")]
+    close: Decimal, // 收盘价
+    #[serde(rename = "h")]
+    high: Decimal, // 最高价
+    #[serde(rename = "l")]
+    low: Decimal, // 最低价
+    #[serde(rename = "v")]
+    volume: Decimal, // 成交量
+    #[serde(rename = "n")]
+    trade_count: u64, // 成交笔数
+    #[serde(rename = "x")]
+    is_closed: bool, // 这根K线是否完结
+    #[serde(rename = "q")]
+    quote_volume: Decimal, // 成交额
+    #[serde(rename = "V")]
+    taker_buy_volume: Decimal, // 主动买入成交量
+    #[serde(rename = "Q")]
+    taker_buy_quote_volume: Decimal, // 主动买入成交额
+    #[serde(rename = "B")]
+    ignore: String, // 忽略此参数
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KlineDataStreamRaw {
+    #[serde(rename = "e")]
+    event_type: String, // 事件类型
+    #[serde(rename = "E")]
+    event_time: u64, // 事件时间
+    #[serde(rename = "s")]
+    symbol: String, // 交易对
+    #[serde(rename = "k")]
+    kline: KlineStreamDataRaw, // K线数据
+}
+
+impl From<KlineDataStreamRaw> for KlineData {
+    fn from(raw: KlineDataStreamRaw) -> Self {
+        KlineData {
+            symbol: raw.kline.symbol,
+            interval: raw.kline.interval,
+            open_time: raw.kline.open_time,
+            close_time: raw.kline.close_time,
+            open: raw.kline.open,
+            high: raw.kline.high,
+            low: raw.kline.low,
+            close: raw.kline.close,
+            volume: raw.kline.volume,
+            quote_volume: raw.kline.quote_volume,
+            trade_count: raw.kline.trade_count,
+            taker_buy_volume: raw.kline.taker_buy_volume,
+            taker_buy_quote_volume: raw.kline.taker_buy_quote_volume,
+            first_trade_id: raw.kline.first_trade_id,
+            last_trade_id: raw.kline.last_trade_id,
+            is_closed: raw.kline.is_closed,
+        }
+    }
+}
+
+pub fn parse_kline_stream(data: &str) -> Result<KlineData, serde_json::Error> {
+    let raw: KlineDataStreamRaw = serde_json::from_str(data)?;
     Ok(raw.into())
 }
 

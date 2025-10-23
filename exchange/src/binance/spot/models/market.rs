@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlineData {
     pub symbol: String,
+    pub interval: String,
     pub open_time: u64,
     pub close_time: u64,
     pub open: Decimal,
@@ -14,6 +15,11 @@ pub struct KlineData {
     pub volume: Decimal,
     pub quote_volume: Decimal,
     pub trade_count: u64,
+    pub taker_buy_volume: Decimal,
+    pub taker_buy_quote_volume: Decimal,
+    pub first_trade_id: u64,
+    pub last_trade_id: u64,
+    pub is_closed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

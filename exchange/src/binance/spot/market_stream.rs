@@ -9,6 +9,7 @@ use rate_limiter::RateLimiter;
 use serde::Deserialize;
 use std::char;
 use std::collections::HashMap;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -19,6 +20,7 @@ use ws::SendMsg;
 enum MarketStreamType {
     UpdateDepth,
     AggTrade,
+    Kline,
 }
 
 #[derive(Clone)]
@@ -37,6 +39,7 @@ pub struct MarketStream {
     sub_details: HashMap<String, SubDetail>,
     update_depth_cb: Option<Arc<dyn Fn(DepthUpdate) -> Fut + Send + Sync + 'static>>,
     agg_trade_cb: Option<Arc<dyn Fn(AggTrade) -> Fut + Send + Sync + 'static>>,
+    kline_cb: Option<Arc<dyn Fn(KlineData) -> Fut + Send + Sync + 'static>>,
 
     // ws客户端
     client: Option<ws::Client>,
@@ -56,6 +59,7 @@ impl MarketStream {
             sub_details: HashMap::new(),
             update_depth_cb: None,
             agg_trade_cb: None,
+            kline_cb: None,
             client: None,
         }
     }
@@ -80,6 +84,16 @@ impl MarketStream {
         );
     }
 
+    pub fn subscribe_kline(&mut self, symbol: &str, interval: &str) {
+        self.sub_details.insert(
+            format!("{}@kline_{}", symbol.to_lowercase(), interval),
+            SubDetail {
+                stream_type: MarketStreamType::Kline,
+                symbol: symbol.to_string(),
+            },
+        );
+    }
+
     pub fn register_depth_update_callback<F>(&mut self, cb: F)
     where
         F: Fn(DepthUpdate) -> Fut + Send + Sync + 'static,
@@ -94,11 +108,19 @@ impl MarketStream {
         self.agg_trade_cb = Some(Arc::new(cb));
     }
 
+    pub fn register_kline_callback<F>(&mut self, cb: F)
+    where
+        F: Fn(KlineData) -> Fut + Send + Sync + 'static,
+    {
+        self.kline_cb = Some(Arc::new(cb));
+    }
+
     // 完成ws连接并订阅
     pub async fn init(&mut self) -> Result<CancellationToken> {
         let sub_details = Arc::new(self.sub_details.clone());
         let update_depth_cb = self.update_depth_cb.clone();
         let agg_trade_cb = self.agg_trade_cb.clone();
+        let kline_cb = self.kline_cb.clone();
         let mut config = ws::Config::default(
             self.url.clone(),
             Arc::new(Self::calc_recv_msg_id),
@@ -106,8 +128,9 @@ impl MarketStream {
                 let sub_details = sub_details.clone();
                 let update_depth_cb = update_depth_cb.clone();
                 let agg_trade_cb = agg_trade_cb.clone();
+                let kline_cb = kline_cb.clone();
                 Box::pin(async move {
-                    Self::handle(msg, sub_details, update_depth_cb, agg_trade_cb).await
+                    Self::handle(msg, sub_details, update_depth_cb, agg_trade_cb, kline_cb).await
                 })
             }),
         );
@@ -204,6 +227,14 @@ impl MarketStream {
                     + 'static,
             >,
         >,
+        kline_cb: Option<
+            Arc<
+                dyn Fn(KlineData) -> Pin<Box<dyn Future<Output = ws::Result<()>> + Send>>
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
     ) -> ws::Result<()> {
         let text = match msg {
             RecvMsg::Text { msg_id: _, content } => content,
@@ -261,6 +292,18 @@ impl MarketStream {
                 })?;
                 if let Some(cb) = agg_trade_cb {
                     cb(agg_trade).await.map_err(|e| ws::WsError::HandleError {
+                        message: e.to_string(),
+                    })?;
+                }
+            }
+            MarketStreamType::Kline => {
+                let kline = parse_kline_stream(stream_msg.data.get()).map_err(|e| {
+                    ws::WsError::HandleError {
+                        message: e.to_string(),
+                    }
+                })?;
+                if let Some(cb) = kline_cb {
+                    cb(kline).await.map_err(|e| ws::WsError::HandleError {
                         message: e.to_string(),
                     })?;
                 }

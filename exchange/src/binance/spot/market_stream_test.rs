@@ -74,3 +74,43 @@ async fn test_market_stream_agg_trade() {
     println!("Received {} agg trades", agg_trades.len());
     json::dump(&*agg_trades, "agg_trades_stream.json").unwrap();
 }
+
+#[tokio::test]
+async fn test_market_stream_kline() {
+    let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .is_test(true)
+        .try_init();
+
+    let mut market_stream = MarketStream::new(
+        SPOT_WSS_URL.to_string() + "/stream",
+        //None,
+        Some("socks5://127.0.0.1:10808".to_string()),
+        None,
+    );
+
+    market_stream.subscribe_kline("BTCUSDT", "1m");
+
+    let klines = Arc::new(Mutex::new(Vec::<super::models::market::KlineData>::new()));
+    let klines_clone = klines.clone();
+    market_stream.register_kline_callback(move |kline| {
+        let klines_clone = klines_clone.clone();
+        Box::pin(async move {
+            let mut klines = klines_clone.lock().await;
+            println!(
+                "Received Kline: symbol={}, interval={}, open_time={}, close_time={}, open={}, high={}, low={}, close={}, volume={}, is_closed={}",
+                kline.symbol, kline.interval, kline.open_time, kline.close_time, 
+                kline.open, kline.high, kline.low, kline.close, kline.volume, kline.is_closed
+            );
+            klines.push(kline);
+            Ok(())
+        })
+    });
+
+    market_stream.init().await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+    let klines = klines.lock().await;
+    assert!(!klines.is_empty());
+    println!("Received {} klines", klines.len());
+    json::dump(&*klines, "klines_stream.json").unwrap();
+}
