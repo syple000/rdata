@@ -8,6 +8,7 @@ time = { path = "../time" }
 rate_limiter = { path = "../rate_limiter" }
 ws = { path = "../ws" }
 json = { path = "../json" }
+platform = { path = "../platform" }
 
 rust_decimal = { version = "1.38.0", features = ["serde", "serde-bincode"] }
 serde = { version = "1.0.225", features = ["derive"] }

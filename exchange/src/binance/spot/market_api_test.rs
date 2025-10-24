@@ -93,7 +93,7 @@ async fn test_market_get_exchange_info() {
     // 测试获取单个交易对的交易规范信息
     let resp = market
         .get_exchange_info(GetExchangeInfoRequest {
-            symbol: Some("BTCUSDT".to_string()),
+            symbol: None,
             symbols: None,
         })
         .await;
