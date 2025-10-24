@@ -59,6 +59,7 @@ pub struct DepthData {
     pub last_update_id: u64,
     pub bids: Vec<PriceLevel>,
     pub asks: Vec<PriceLevel>,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

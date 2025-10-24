@@ -233,6 +233,7 @@ impl From<(String, DepthDataRaw)> for DepthData {
                     }
                 })
                 .collect(),
+            timestamp: 0,
         }
     }
 }
