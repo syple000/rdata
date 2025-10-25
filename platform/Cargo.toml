@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 exchange = { path = "../exchange" }
 
+tokio = {version = "1.47.1", features = ["full"]}
 async-trait = "0.1.89"
 rust_decimal = { version = "1.38.0", features = ["serde", "serde-bincode"] }
 serde = { version = "1.0.225", features = ["derive"] }

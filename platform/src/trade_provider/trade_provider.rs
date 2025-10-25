@@ -1,8 +1,13 @@
 use crate::models::{Balance, Order, UserTrade};
 use async_trait::async_trait;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
-// 保存固定时间窗口或未关闭的order/trade
+pub enum TradeEvent {
+    Order(Arc<Order>),
+    Trade(Arc<UserTrade>),
+    Balance(Vec<Arc<Balance>>),
+}
 
 #[async_trait]
 pub trait TradeProvider: Send + Sync {
@@ -16,7 +21,6 @@ pub trait TradeProvider: Send + Sync {
 
     async fn get_trades(
         &self,
-        symbol: &str,
         order_id: Option<&str>,
         client_order_id: Option<&str>,
     ) -> Result<Vec<Arc<UserTrade>>, Self::Error>;
@@ -32,4 +36,6 @@ pub trait TradeProvider: Send + Sync {
         symbol: Option<&str>,
         limit: Option<u32>,
     ) -> Result<Vec<Arc<UserTrade>>, Self::Error>;
+
+    fn subscribe(&self) -> broadcast::Receiver<TradeEvent>;
 }

@@ -1,8 +1,14 @@
 use crate::models::{DepthData, ExchangeInfo, KlineData, KlineInterval, Ticker24hr, Trade};
 use async_trait::async_trait;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
-// 保存固定条数的kline/trade
+pub enum MarketEvent {
+    Kline(Arc<KlineData>),
+    Depth(Arc<DepthData>),
+    Ticker(Arc<Ticker24hr>),
+    Trade(Arc<Trade>),
+}
 
 #[async_trait]
 pub trait MarketProvider: Send + Sync {
@@ -28,4 +34,6 @@ pub trait MarketProvider: Send + Sync {
     ) -> Result<Vec<Arc<Trade>>, Self::Error>;
 
     async fn get_exchange_info(&self) -> Result<ExchangeInfo, Self::Error>;
+
+    fn subscribe(&self) -> broadcast::Receiver<MarketEvent>;
 }
