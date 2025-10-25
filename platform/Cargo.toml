@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+exchange = { path = "../exchange" }
+
+async-trait = "0.1.89"
 rust_decimal = { version = "1.38.0", features = ["serde", "serde-bincode"] }
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["raw_value"] }

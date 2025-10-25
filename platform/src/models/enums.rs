@@ -57,3 +57,24 @@ pub enum TimeInForce {
     Ioc,
     Fok,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum KlineInterval {
+    OneSecond,
+    OneMinute,
+    ThreeMinutes,
+    FiveMinutes,
+    FifteenMinutes,
+    ThirtyMinutes,
+    OneHour,
+    TwoHours,
+    FourHours,
+    SixHours,
+    EightHours,
+    TwelveHours,
+    OneDay,
+    ThreeDays,
+    OneWeek,
+    OneMonth,
+}

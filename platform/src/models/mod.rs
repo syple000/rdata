@@ -1,7 +1,3 @@
-use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NoExtra {}
-
 pub mod market;
 pub use market::*;
 
@@ -10,3 +6,5 @@ pub use enums::*;
 
 pub mod trade;
 pub use trade::*;
+
+pub mod binance_spot_conversion;

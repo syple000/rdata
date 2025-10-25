@@ -1,11 +1,11 @@
-use crate::models::{NoExtra, SymbolStatus};
+use crate::models::{KlineInterval, SymbolStatus};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KlineData<Extra = NoExtra> {
+pub struct KlineData {
     pub symbol: String,
-    pub interval: String,
+    pub interval: KlineInterval,
     pub open_time: u64,
     pub close_time: u64,
     pub open: Decimal,
@@ -14,13 +14,10 @@ pub struct KlineData<Extra = NoExtra> {
     pub close: Decimal,
     pub volume: Decimal,
     pub quote_volume: Decimal,
-
-    #[serde(flatten)]
-    pub extra: Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Ticker24hr<Extra = NoExtra> {
+pub struct Ticker24hr {
     pub symbol: String,
     pub last_price: Decimal,
     pub last_qty: Decimal,
@@ -36,9 +33,6 @@ pub struct Ticker24hr<Extra = NoExtra> {
     pub open_time: u64,
     pub close_time: u64,
     pub count: u64,
-
-    #[serde(flatten)]
-    pub extra: Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,31 +42,25 @@ pub struct PriceLevel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DepthData<Extra = NoExtra> {
+pub struct DepthData {
     pub symbol: String,
     pub bids: Vec<PriceLevel>,
     pub asks: Vec<PriceLevel>,
     pub timestamp: u64,
-
-    #[serde(flatten)]
-    pub extra: Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Trade<Extra = NoExtra> {
+pub struct Trade {
     pub symbol: String,
     pub trade_id: u64,
     pub price: Decimal,
     pub quantity: Decimal,
     pub timestamp: u64,
     pub is_buyer_maker: bool,
-
-    #[serde(flatten)]
-    pub extra: Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SymbolInfo<Extra = NoExtra> {
+pub struct SymbolInfo {
     pub symbol: String,
     pub status: SymbolStatus,
     pub base_asset: String,
@@ -101,15 +89,9 @@ pub struct SymbolInfo<Extra = NoExtra> {
     pub quantity_step_size: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_notional: Option<Decimal>,
-
-    #[serde(flatten)]
-    pub extra: Extra,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExchangeInfo<SymExtra = NoExtra, Extra = NoExtra> {
-    pub symbols: Vec<SymbolInfo<SymExtra>>,
-
-    #[serde(flatten)]
-    pub extra: Extra,
+pub struct ExchangeInfo {
+    pub symbols: Vec<SymbolInfo>,
 }
