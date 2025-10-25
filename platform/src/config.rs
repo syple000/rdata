@@ -62,3 +62,38 @@ impl Config {
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    #[test]
+    fn test_load_json_config() {
+        let mut tempfile = NamedTempFile::new().unwrap();
+        writeln!(tempfile, r#"{{ "api": {{ "key": "my_api_key" }} }}"#).unwrap();
+        let config = Config::from_json(tempfile.path().to_str().unwrap()).unwrap();
+        let api_key: String = config.get("api.key").unwrap();
+        assert_eq!(api_key, "my_api_key");
+    }
+
+    #[test]
+    fn test_load_yaml_config() {
+        let mut tempfile = NamedTempFile::new().unwrap();
+        writeln!(tempfile, "api:\n  key: my_api_key").unwrap();
+        let config = Config::from_yaml(tempfile.path().to_str().unwrap()).unwrap();
+        let api_key: String = config.get("api.key").unwrap();
+        assert_eq!(api_key, "my_api_key");
+    }
+
+    #[test]
+    fn test_load_toml_config() {
+        let mut tempfile = NamedTempFile::new().unwrap();
+        writeln!(tempfile, "[api]\nkey = \"my_api_key\"").unwrap();
+        let config = Config::from_toml(tempfile.path().to_str().unwrap()).unwrap();
+        let api_key: String = config.get("api.key").unwrap();
+        assert_eq!(api_key, "my_api_key");
+    }
+}
