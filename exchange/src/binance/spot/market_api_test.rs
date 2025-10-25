@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use std::time::Duration;
-
 use super::super::consts::*;
 use super::market_api::MarketApi;
 use super::requests::market::*;
+use crate::binance::spot::models::KlineInterval;
 use env_logger::Env;
 use rate_limiter::RateLimiter;
+use std::sync::Arc;
+use std::time::Duration;
 
 fn setup_test_market_api() -> MarketApi {
     let _ = env_logger::Builder::from_env(Env::default().default_filter_or("info"))

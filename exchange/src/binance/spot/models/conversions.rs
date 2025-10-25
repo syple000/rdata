@@ -51,11 +51,34 @@ impl From<OrderType> for platform::OrderType {
     }
 }
 
+impl From<KlineInterval> for platform::KlineInterval {
+    fn from(interval: KlineInterval) -> Self {
+        match interval {
+            KlineInterval::OneSecond => platform::KlineInterval::OneSecond,
+            KlineInterval::OneMinute => platform::KlineInterval::OneMinute,
+            KlineInterval::ThreeMinutes => platform::KlineInterval::ThreeMinutes,
+            KlineInterval::FiveMinutes => platform::KlineInterval::FiveMinutes,
+            KlineInterval::FifteenMinutes => platform::KlineInterval::FifteenMinutes,
+            KlineInterval::ThirtyMinutes => platform::KlineInterval::ThirtyMinutes,
+            KlineInterval::OneHour => platform::KlineInterval::OneHour,
+            KlineInterval::TwoHours => platform::KlineInterval::TwoHours,
+            KlineInterval::FourHours => platform::KlineInterval::FourHours,
+            KlineInterval::SixHours => platform::KlineInterval::SixHours,
+            KlineInterval::EightHours => platform::KlineInterval::EightHours,
+            KlineInterval::TwelveHours => platform::KlineInterval::TwelveHours,
+            KlineInterval::OneDay => platform::KlineInterval::OneDay,
+            KlineInterval::ThreeDays => platform::KlineInterval::ThreeDays,
+            KlineInterval::OneWeek => platform::KlineInterval::OneWeek,
+            KlineInterval::OneMonth => platform::KlineInterval::OneMonth,
+        }
+    }
+}
+
 impl From<KlineData> for platform::KlineData {
     fn from(kline: KlineData) -> Self {
         platform::KlineData {
             symbol: kline.symbol,
-            interval: kline.interval,
+            interval: kline.interval.into(),
             open_time: kline.open_time,
             close_time: kline.close_time,
             open: kline.open,
@@ -82,8 +105,8 @@ pub struct KlineExtra {
 impl From<KlineData> for platform::KlineData<KlineExtra> {
     fn from(kline: KlineData) -> Self {
         platform::KlineData {
-            symbol: kline.symbol.clone(),
-            interval: kline.interval.clone(),
+            symbol: kline.symbol,
+            interval: kline.interval.into(),
             open_time: kline.open_time,
             close_time: kline.close_time,
             open: kline.open,
@@ -140,7 +163,7 @@ pub struct Ticker24hrExtra {
 impl From<Ticker24hr> for platform::Ticker24hr<Ticker24hrExtra> {
     fn from(ticker: Ticker24hr) -> Self {
         platform::Ticker24hr {
-            symbol: ticker.symbol.clone(),
+            symbol: ticker.symbol,
             last_price: ticker.last_price,
             last_qty: ticker.last_qty,
             bid_price: ticker.bid_price,
@@ -313,7 +336,6 @@ impl From<Symbol> for platform::SymbolInfo {
     }
 }
 
-// Extra data for SymbolInfo with all Binance-specific fields
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SymbolInfoExtra {
     pub order_types: Vec<OrderType>,
@@ -401,7 +423,6 @@ impl From<ExchangeInfo> for platform::ExchangeInfo {
     }
 }
 
-// Extra data for ExchangeInfo
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExchangeInfoExtra {
     pub timezone: String,

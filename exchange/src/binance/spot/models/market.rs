@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlineData {
     pub symbol: String,
-    pub interval: String,
+    pub interval: KlineInterval,
     pub open_time: u64,
     pub close_time: u64,
     pub open: Decimal,

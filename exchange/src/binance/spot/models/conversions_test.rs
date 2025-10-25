@@ -41,7 +41,7 @@ mod tests {
     fn test_kline_conversion() {
         let binance_kline = KlineData {
             symbol: "BTCUSDT".to_string(),
-            interval: "1m".to_string(),
+            interval: KlineInterval::OneMinute,
             open_time: 1000,
             close_time: 2000,
             open: Decimal::from_str("50000").unwrap(),
@@ -60,7 +60,7 @@ mod tests {
 
         let platform_kline: platform::KlineData = binance_kline.into();
         assert_eq!(platform_kline.symbol, "BTCUSDT");
-        assert_eq!(platform_kline.interval, "1m");
+        assert_eq!(platform_kline.interval, platform::KlineInterval::OneMinute);
         assert_eq!(platform_kline.open, Decimal::from_str("50000").unwrap());
         assert_eq!(platform_kline.close, Decimal::from_str("50500").unwrap());
     }

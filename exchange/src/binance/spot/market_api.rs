@@ -95,14 +95,13 @@ impl MarketApi {
                 .send_request(reqwest::Method::GET, "/api/v3/klines", params, 2)
                 .await?;
 
-            let mut batch_klines =
-                parse_klines(req.symbol.clone(), req.interval.as_str().to_string(), &text)
-                    .map_err(|e| {
-                        error!("Parse result: {:?} error: {:?}", text, e);
-                        BinanceError::ParseResultError {
-                            message: e.to_string(),
-                        }
-                    })?;
+            let mut batch_klines = parse_klines(req.symbol.clone(), req.interval.clone(), &text)
+                .map_err(|e| {
+                    error!("Parse result: {:?} error: {:?}", text, e);
+                    BinanceError::ParseResultError {
+                        message: e.to_string(),
+                    }
+                })?;
             batch_klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
 
             if start_time > 0 {

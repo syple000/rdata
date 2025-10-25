@@ -239,6 +239,7 @@ async fn test_iceberg_qty_time_in_force_validation() {
 async fn test_place_valid_limit_order() {
     let trade_api = setup_test_trade_api();
 
+    let client_order_id = format!("test_order_{}", time::get_current_milli_timestamp());
     let req = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
         side: Side::Buy,
@@ -246,10 +247,7 @@ async fn test_place_valid_limit_order() {
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: Some(Decimal::from_str("25000.00").unwrap()), // 设置一个较低的价格以避免意外成交
-        new_client_order_id: Some(format!(
-            "test_order_{}",
-            time::get_current_milli_timestamp()
-        )),
+        new_client_order_id: Some(client_order_id.clone()),
         stop_price: None,
         iceberg_qty: None,
     };
@@ -264,8 +262,8 @@ async fn test_place_valid_limit_order() {
             let cancel_req = CancelOrderRequest {
                 symbol: "BTCUSDT".to_string(),
                 order_id: Some(order.order_id),
-                orig_client_order_id: None,
-                new_client_order_id: None,
+                orig_client_order_id: Some(client_order_id.clone()),
+                new_client_order_id: Some(client_order_id.clone()),
             };
 
             let cancel_result = trade_api.cancel_order(cancel_req).await;
@@ -291,6 +289,27 @@ async fn test_place_valid_limit_order() {
                 }
                 Err(e) => {
                     panic!("Failed to fetch the placed order: {:?}", e);
+                }
+            }
+            let get_orders_result = trade_api
+                .get_all_orders(GetAllOrdersRequest {
+                    symbol: "BTCUSDT".to_string(),
+                    order_id: None,
+                    start_time: Some(time::get_current_milli_timestamp() - 60 * 1000),
+                    end_time: Some(time::get_current_milli_timestamp()),
+                    limit: Some(10),
+                })
+                .await;
+            match get_orders_result {
+                Ok(orders) => {
+                    println!(
+                        "Got {} orders including the placed limit order",
+                        orders.len()
+                    );
+                    json::dump(&orders, "all_orders_after_limit_order.json").unwrap();
+                }
+                Err(e) => {
+                    panic!("Failed to get all orders: {:?}", e);
                 }
             }
         }

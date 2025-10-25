@@ -97,7 +97,7 @@ async fn test_market_stream_kline() {
         Box::pin(async move {
             let mut klines = klines_clone.lock().await;
             println!(
-                "Received Kline: symbol={}, interval={}, open_time={}, close_time={}, open={}, high={}, low={}, close={}, volume={}, is_closed={}",
+                "Received Kline: symbol={}, interval={:?}, open_time={}, close_time={}, open={}, high={}, low={}, close={}, volume={}, is_closed={}",
                 kline.symbol, kline.interval, kline.open_time, kline.close_time, 
                 kline.open, kline.high, kline.low, kline.close, kline.volume, kline.is_closed
             );

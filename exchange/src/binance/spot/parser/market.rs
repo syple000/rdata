@@ -1,4 +1,4 @@
-use crate::binance::spot::requests::GetTicker24hrRequest;
+use crate::binance::spot::{models::KlineInterval, requests::GetTicker24hrRequest};
 
 use super::super::models::market::*;
 use rust_decimal::Decimal;
@@ -60,8 +60,8 @@ pub struct KlineDataRaw(
     Value,   // 11: ignore this field
 );
 
-impl From<(String, String, KlineDataRaw)> for KlineData {
-    fn from((symbol, interval, raw): (String, String, KlineDataRaw)) -> Self {
+impl From<(String, KlineInterval, KlineDataRaw)> for KlineData {
+    fn from((symbol, interval, raw): (String, KlineInterval, KlineDataRaw)) -> Self {
         KlineData {
             symbol,
             interval,
@@ -85,7 +85,7 @@ impl From<(String, String, KlineDataRaw)> for KlineData {
 
 pub fn parse_klines(
     symbol: String,
-    interval: String,
+    interval: KlineInterval,
     data: &str,
 ) -> Result<Vec<KlineData>, serde_json::Error> {
     let raw_klines: Vec<KlineDataRaw> = serde_json::from_str(data)?;
@@ -296,7 +296,7 @@ pub struct KlineStreamDataRaw {
     #[serde(rename = "s")]
     symbol: String, // 交易对
     #[serde(rename = "i")]
-    interval: String, // K线间隔
+    interval: KlineInterval, // K线间隔
     #[serde(rename = "f", deserialize_with = "de_u64_allow_negative")]
     first_trade_id: u64, // 这根K线期间第一笔成交ID
     #[serde(rename = "L", deserialize_with = "de_u64_allow_negative")]
