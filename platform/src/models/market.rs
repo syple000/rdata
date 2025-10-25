@@ -52,7 +52,7 @@ pub struct DepthData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trade {
     pub symbol: String,
-    pub trade_id: u64,
+    pub trade_id: String,
     pub price: Decimal,
     pub quantity: Decimal,
     pub timestamp: u64,

@@ -136,7 +136,7 @@ impl From<AggTrade> for platform::Trade {
     fn from(trade: AggTrade) -> Self {
         platform::Trade {
             symbol: trade.symbol,
-            trade_id: trade.agg_trade_id,
+            trade_id: trade.agg_trade_id.to_string(),
             price: trade.price,
             quantity: trade.quantity,
             timestamp: trade.timestamp,
