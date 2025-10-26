@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use exchange::binance::spot::{
     market_api::MarketApi,
-    market_stream::{self, MarketStream},
+    market_stream::MarketStream,
     models,
     requests::{GetAggTradesRequest, GetDepthRequest, GetExchangeInfoRequest, GetKlinesRequest},
 };
@@ -129,6 +129,7 @@ pub struct BinanceSpotMarketProvider {
     exchange_info: Option<Arc<ArcSwap<ExchangeInfo>>>,
 
     sender: broadcast::Sender<MarketEvent>,
+    #[allow(dead_code)]
     receiver: broadcast::Receiver<MarketEvent>,
 
     shutdown_token: CancellationToken,
@@ -614,27 +615,87 @@ impl MarketProvider for BinanceSpotMarketProvider {
         interval: KlineInterval,
         limit: Option<u32>,
     ) -> Result<Vec<Arc<KlineData>>> {
-        todo!()
+        let klines_entry = self.klines.get(&(symbol.to_string(), interval.clone()));
+        if let Some(klines_entry) = klines_entry {
+            let klines = klines_entry.read().await;
+            let mut result: Vec<Arc<KlineData>> = klines.values().cloned().collect();
+
+            if let Some(limit) = limit {
+                let start = result.len().saturating_sub(limit as usize);
+                result = result[start..].to_vec();
+            }
+
+            Ok(result)
+        } else {
+            Ok(Vec::new())
+        }
     }
 
     async fn get_depth(&self, symbol: &str) -> Result<Arc<DepthData>> {
-        todo!()
+        let depth_entry = self.depth.get(symbol);
+        if let Some(depth_entry) = depth_entry {
+            let depth_state = depth_entry.read().await;
+            if let Some(state) = depth_state.as_ref() {
+                Ok(state.depth.clone())
+            } else {
+                Err(PlatformError::MarketProviderError {
+                    message: format!("Depth for symbol {} not available yet", symbol),
+                })
+            }
+        } else {
+            Err(PlatformError::MarketProviderError {
+                message: format!("Depth for symbol {} not found", symbol),
+            })
+        }
     }
 
     async fn get_ticker_24hr(&self, symbol: &str) -> Result<Arc<Ticker24hr>> {
-        todo!()
+        let ticker_entry = self.ticker_24hr.get(symbol);
+        if let Some(ticker_entry) = ticker_entry {
+            let ticker = ticker_entry.read().await;
+            if let Some(ticker) = ticker.as_ref() {
+                Ok(ticker.clone())
+            } else {
+                Err(PlatformError::MarketProviderError {
+                    message: format!("Ticker 24hr for symbol {} not available yet", symbol),
+                })
+            }
+        } else {
+            Err(PlatformError::MarketProviderError {
+                message: format!("Ticker 24hr for symbol {} not found", symbol),
+            })
+        }
     }
 
     async fn get_trades(&self, symbol: &str, limit: Option<u32>) -> Result<Vec<Arc<Trade>>> {
-        todo!()
+        let trades_entry = self.trades.get(symbol);
+        if let Some(trades_entry) = trades_entry {
+            let trades = trades_entry.read().await;
+            let mut result: Vec<Arc<Trade>> = trades.values().cloned().collect();
+
+            if let Some(limit) = limit {
+                let start = result.len().saturating_sub(limit as usize);
+                result = result[start..].to_vec();
+            }
+
+            Ok(result)
+        } else {
+            Ok(Vec::new())
+        }
     }
 
     async fn get_exchange_info(&self) -> Result<ExchangeInfo> {
-        todo!()
+        if let Some(exchange_info) = &self.exchange_info {
+            Ok(exchange_info.load().as_ref().clone())
+        } else {
+            Err(PlatformError::MarketProviderError {
+                message: "Exchange info not initialized".to_string(),
+            })
+        }
     }
 
     fn subscribe(&self) -> broadcast::Receiver<MarketEvent> {
-        todo!()
+        self.sender.subscribe()
     }
 }
 

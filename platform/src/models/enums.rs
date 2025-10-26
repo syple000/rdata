@@ -59,22 +59,37 @@ pub enum TimeInForce {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum KlineInterval {
+    #[serde(rename = "1s")]
     OneSecond,
+    #[serde(rename = "1m")]
     OneMinute,
+    #[serde(rename = "3m")]
     ThreeMinutes,
+    #[serde(rename = "5m")]
     FiveMinutes,
+    #[serde(rename = "15m")]
     FifteenMinutes,
+    #[serde(rename = "30m")]
     ThirtyMinutes,
+    #[serde(rename = "1h")]
     OneHour,
+    #[serde(rename = "2h")]
     TwoHours,
+    #[serde(rename = "4h")]
     FourHours,
+    #[serde(rename = "6h")]
     SixHours,
+    #[serde(rename = "8h")]
     EightHours,
+    #[serde(rename = "12h")]
     TwelveHours,
+    #[serde(rename = "1d")]
     OneDay,
+    #[serde(rename = "3d")]
     ThreeDays,
+    #[serde(rename = "1w")]
     OneWeek,
+    #[serde(rename = "1M")]
     OneMonth,
 }
