@@ -9,10 +9,11 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use exchange::binance::spot::{
     market_api::MarketApi,
-    market_stream::MarketStream,
+    market_stream::{self, MarketStream},
     models,
-    requests::{GetAggTradesRequest, GetDepthRequest, GetKlinesRequest},
+    requests::{GetAggTradesRequest, GetDepthRequest, GetExchangeInfoRequest, GetKlinesRequest},
 };
+use log::error;
 use rate_limiter::RateLimiter;
 use rust_decimal::Decimal;
 use std::{
@@ -21,6 +22,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{broadcast, RwLock};
+use tokio_util::sync::CancellationToken;
 use ws::WsError;
 
 struct BinanceSpotDepthState {
@@ -124,6 +126,12 @@ pub struct BinanceSpotMarketProvider {
     trades: Arc<DashMap<String, RwLock<BTreeMap<u64, Arc<Trade>>>>>,
     depth: Arc<DashMap<String, RwLock<Option<BinanceSpotDepthState>>>>,
     ticker_24hr: Arc<DashMap<String, RwLock<Option<Arc<Ticker24hr>>>>>,
+    exchange_info: Option<Arc<ArcSwap<ExchangeInfo>>>,
+
+    sender: broadcast::Sender<MarketEvent>,
+    receiver: broadcast::Receiver<MarketEvent>,
+
+    shutdown_token: CancellationToken,
 }
 
 impl BinanceSpotMarketProvider {
@@ -154,6 +162,11 @@ impl BinanceSpotMarketProvider {
             )
         });
 
+        let cap = config
+            .get("binance.spot.market_event_channel_capacity")
+            .unwrap_or(1000);
+        let (sender, receiver) = broadcast::channel(cap);
+
         Ok(Self {
             config: config.clone(),
             api_rate_limiters,
@@ -164,11 +177,15 @@ impl BinanceSpotMarketProvider {
             trades: Arc::new(DashMap::new()),
             depth: Arc::new(DashMap::new()),
             ticker_24hr: Arc::new(DashMap::new()),
+            exchange_info: None,
+            sender,
+            receiver,
+            shutdown_token: CancellationToken::new(),
         })
     }
 }
 
-async fn create_market_api(
+fn create_market_api(
     config: Arc<Config>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
 ) -> Result<MarketApi> {
@@ -471,7 +488,124 @@ async fn create_market_stream(
 #[async_trait]
 impl MarketProvider for BinanceSpotMarketProvider {
     async fn init(&mut self) -> Result<()> {
-        todo!()
+        let market_api = Arc::new(create_market_api(
+            self.config.clone(),
+            self.api_rate_limiters.clone(),
+        )?);
+
+        let market_stream = create_market_stream(
+            market_api.clone(),
+            self.config.clone(),
+            self.stream_rate_limiters.clone(),
+            self.sender.clone(),
+            self.klines.clone(),
+            self.trades.clone(),
+            self.depth.clone(),
+            self.ticker_24hr.clone(),
+        )
+        .await?;
+
+        self.market_api = Some(market_api);
+        self.market_stream = Some(Arc::new(ArcSwap::from_pointee(market_stream)));
+
+        let get_exchange_info = async |market_api: Arc<MarketApi>| -> Result<ExchangeInfo> {
+            let exchange_info = market_api
+                .get_exchange_info(GetExchangeInfoRequest {
+                    symbol: None,
+                    symbols: None,
+                })
+                .await
+                .map_err(|e| PlatformError::MarketProviderError {
+                    message: format!("Failed to get exchange info: {}", e),
+                })?
+                .into();
+            Ok(exchange_info)
+        };
+        let exchange_info = get_exchange_info(self.market_api.as_ref().unwrap().clone()).await?;
+        self.exchange_info = Some(Arc::new(ArcSwap::from_pointee(exchange_info)));
+
+        // 定期刷新exchange_info
+        let market_api = self.market_api.as_ref().unwrap().clone();
+        let exchange_info = self.exchange_info.as_ref().unwrap().clone();
+        let shutdown_token = self.shutdown_token.clone();
+        let refresh_interval: u64 = self
+            .config
+            .get("binance.spot.exchange_info_refresh_interval_ms")
+            .unwrap_or(300000);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(refresh_interval));
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        match get_exchange_info(market_api.clone()).await {
+                            Ok(new_exchange_info) => {
+                                exchange_info.store(Arc::new(new_exchange_info));
+                            }
+                            Err(e) => {
+                                error!("Failed to refresh exchange info: {}", e);
+                            }
+                        }
+                    }
+                    _ = shutdown_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        // 监听stream状态，自动重连
+        let market_stream = self.market_stream.as_ref().unwrap().clone();
+        let market_api = self.market_api.as_ref().unwrap().clone();
+        let config = self.config.clone();
+        let stream_rate_limiters = self.stream_rate_limiters.clone();
+        let sender = self.sender.clone();
+        let klines = self.klines.clone();
+        let trades = self.trades.clone();
+        let depth = self.depth.clone();
+        let ticker_24hr = self.ticker_24hr.clone();
+        let shutdown_token = self.shutdown_token.clone();
+        let retry_interval: u64 = self
+            .config
+            .get("binance.spot.stream_retry_interval_ms")
+            .unwrap_or(10000);
+        tokio::spawn(async move {
+            let mut pre_retry_ts = 0;
+            loop {
+                let market_stream_ = market_stream.load_full();
+                let dead_token = market_stream_.get_ws_shutdown_token().unwrap();
+                tokio::select! {
+                    _ = dead_token.cancelled() => {
+                        if time::get_current_milli_timestamp() - pre_retry_ts < retry_interval {
+                            tokio::time::sleep(Duration::from_millis(retry_interval - time::get_current_milli_timestamp() + pre_retry_ts)).await;
+                        }
+                        pre_retry_ts = time::get_current_milli_timestamp();
+
+                        match create_market_stream(
+                            market_api.clone(),
+                            config.clone(),
+                            stream_rate_limiters.clone(),
+                            sender.clone(),
+                            klines.clone(),
+                            trades.clone(),
+                            depth.clone(),
+                            ticker_24hr.clone(),
+                        ).await {
+                            Ok(new_market_stream) => {
+                                market_stream.store(Arc::new(new_market_stream));
+                            }
+                            Err(e) => {
+                                error!("Failed to recreate market stream: {}", e);
+                            }
+                        }
+                    }
+                    _ = shutdown_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(())
     }
 
     async fn get_klines(
@@ -501,5 +635,11 @@ impl MarketProvider for BinanceSpotMarketProvider {
 
     fn subscribe(&self) -> broadcast::Receiver<MarketEvent> {
         todo!()
+    }
+}
+
+impl Drop for BinanceSpotMarketProvider {
+    fn drop(&mut self) {
+        self.shutdown_token.cancel();
     }
 }
