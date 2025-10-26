@@ -1,8 +1,7 @@
 use std::sync::Arc;
-
 use env_logger::Env;
 use tokio::sync::Mutex;
-
+use crate::binance::spot::models::KlineInterval;
 use super::super::consts::*;
 use super::market_stream::MarketStream;
 
@@ -88,7 +87,7 @@ async fn test_market_stream_kline() {
         None,
     );
 
-    market_stream.subscribe_kline("BTCUSDT", "1m");
+    market_stream.subscribe_kline("BTCUSDT", &KlineInterval::OneMinute);
 
     let klines = Arc::new(Mutex::new(Vec::<super::models::market::KlineData>::new()));
     let klines_clone = klines.clone();

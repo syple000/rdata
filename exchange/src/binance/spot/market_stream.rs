@@ -1,6 +1,7 @@
 use super::super::errors::*;
 use super::models::market::*;
 use super::parser::*;
+use crate::binance::spot::models::KlineInterval;
 use log::error;
 use log::info;
 use rand::distr::Alphanumeric;
@@ -87,9 +88,9 @@ impl MarketStream {
         );
     }
 
-    pub fn subscribe_kline(&mut self, symbol: &str, interval: &str) {
+    pub fn subscribe_kline(&mut self, symbol: &str, interval: &KlineInterval) {
         self.sub_details.insert(
-            format!("{}@kline_{}", symbol.to_lowercase(), interval),
+            format!("{}@kline_{}", symbol.to_lowercase(), interval.as_str()),
             SubDetail {
                 stream_type: MarketStreamType::Kline,
                 symbol: symbol.to_string(),
