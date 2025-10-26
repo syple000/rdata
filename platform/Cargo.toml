@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 exchange = { path = "../exchange" }
+rate_limiter = { path = "../rate_limiter" }
+ws = { path = "../ws" }
 
 tokio = {version = "1.47.1", features = ["full"]}
 async-trait = "0.1.89"
@@ -14,6 +16,8 @@ serde_json = { version = "1.0.145", features = ["raw_value"] }
 config = "0.15.18"
 log = "0.4.28"
 thiserror = "2.0.17"
+arc-swap = "1.7.1"
+dashmap = "6.1.0"
 
 [dev-dependencies]
 tempfile = "3.23.0"

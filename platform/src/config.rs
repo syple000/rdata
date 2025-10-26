@@ -10,6 +10,7 @@ pub enum ConfigError {
     ParseError { message: String },
 }
 
+#[derive(Clone, Debug)]
 pub struct Config {
     settings: config::Config,
 }
@@ -77,6 +78,8 @@ mod tests {
         let config = Config::from_json(tempfile.path().to_str().unwrap()).unwrap();
         let api_key: String = config.get("api.key").unwrap();
         assert_eq!(api_key, "my_api_key");
+        let not_exist: Option<String> = config.get("api.not_exist").ok();
+        assert_eq!(not_exist, None);
     }
 
     #[test]

@@ -73,6 +73,29 @@ impl From<KlineInterval> for platform::KlineInterval {
     }
 }
 
+impl From<platform::KlineInterval> for KlineInterval {
+    fn from(interval: platform::KlineInterval) -> Self {
+        match interval {
+            platform::KlineInterval::OneSecond => KlineInterval::OneSecond,
+            platform::KlineInterval::OneMinute => KlineInterval::OneMinute,
+            platform::KlineInterval::ThreeMinutes => KlineInterval::ThreeMinutes,
+            platform::KlineInterval::FiveMinutes => KlineInterval::FiveMinutes,
+            platform::KlineInterval::FifteenMinutes => KlineInterval::FifteenMinutes,
+            platform::KlineInterval::ThirtyMinutes => KlineInterval::ThirtyMinutes,
+            platform::KlineInterval::OneHour => KlineInterval::OneHour,
+            platform::KlineInterval::TwoHours => KlineInterval::TwoHours,
+            platform::KlineInterval::FourHours => KlineInterval::FourHours,
+            platform::KlineInterval::SixHours => KlineInterval::SixHours,
+            platform::KlineInterval::EightHours => KlineInterval::EightHours,
+            platform::KlineInterval::TwelveHours => KlineInterval::TwelveHours,
+            platform::KlineInterval::OneDay => KlineInterval::OneDay,
+            platform::KlineInterval::ThreeDays => KlineInterval::ThreeDays,
+            platform::KlineInterval::OneWeek => KlineInterval::OneWeek,
+            platform::KlineInterval::OneMonth => KlineInterval::OneMonth,
+        }
+    }
+}
+
 impl From<KlineData> for platform::KlineData {
     fn from(kline: KlineData) -> Self {
         platform::KlineData {
