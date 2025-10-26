@@ -205,16 +205,16 @@ impl MarketStream {
             });
         }
 
-        let shutdown_token = ws_client.get_shutdown_token().await;
+        let shutdown_token = ws_client.get_shutdown_token();
         self.client = Some(ws_client);
 
         Ok(shutdown_token)
     }
 
-    pub async fn get_ws_shutdown_token(&self) -> Option<CancellationToken> {
+    pub fn get_ws_shutdown_token(&self) -> Option<CancellationToken> {
         match &self.client {
             None => None,
-            Some(client) => Some(client.get_shutdown_token().await),
+            Some(client) => Some(client.get_shutdown_token()),
         }
     }
 
