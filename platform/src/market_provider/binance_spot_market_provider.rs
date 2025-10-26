@@ -416,10 +416,18 @@ async fn create_market_stream(
                 let trade: Arc<Trade> = Arc::new(trade.clone().into());
                 (trade_id, trade)
             })
-            .collect::<BTreeMap<_, _>>();
-        trades
+            .collect::<Vec<(_, _)>>();
+        let symbol_trades = trades
             .entry(symbol.to_string())
-            .insert(RwLock::new(api_trades));
+            .or_insert_with(|| RwLock::new(BTreeMap::new()));
+        let mut symbol_trades = symbol_trades.write().await;
+        for (trade_id, trade) in api_trades.into_iter() {
+            symbol_trades.insert(trade_id, trade);
+            if symbol_trades.len() > max_trade_cnt {
+                symbol_trades.pop_first();
+            }
+        }
+        drop(symbol_trades);
 
         for interval in kline_intervals.iter() {
             let api_klines = market_api
@@ -443,10 +451,17 @@ async fn create_market_stream(
                     let kline: Arc<KlineData> = Arc::new(kline.clone().into());
                     (kline_open_time, kline)
                 })
-                .collect::<BTreeMap<_, _>>();
-            klines
+                .collect::<Vec<(_, _)>>();
+            let symbol_klines = klines
                 .entry((symbol.to_string(), interval.clone()))
-                .insert(RwLock::new(api_klines));
+                .or_insert_with(|| RwLock::new(BTreeMap::new()));
+            let mut symbol_klines = symbol_klines.write().await;
+            for (kline_open_time, kline) in api_klines.into_iter() {
+                symbol_klines.insert(kline_open_time, kline);
+                if symbol_klines.len() > max_kline_cnt {
+                    symbol_klines.pop_first();
+                }
+            }
         }
     }
 
