@@ -209,7 +209,7 @@ async fn test_basic_connect_and_disconnect() {
     let result = client.connect().await;
     assert!(result.is_ok(), "Failed to connect: {:?}", result);
 
-    let token = client.get_shutdown_token().await;
+    let token = client.get_shutdown_token();
     assert!(!token.is_cancelled(), "Shutdown token should be available");
 
     server.shutdown();

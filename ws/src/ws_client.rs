@@ -235,7 +235,7 @@ impl Client {
     }
 
     // 外部监控WSClient信号
-    pub async fn get_shutdown_token(&self) -> CancellationToken {
+    pub fn get_shutdown_token(&self) -> CancellationToken {
         return self.shutdown_token.clone();
     }
 
