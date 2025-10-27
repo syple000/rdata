@@ -316,11 +316,7 @@ impl MarketStream {
                         },
                     )?;
                 if let Some(cb) = update_depth_cb {
-                    cb(depth_update)
-                        .await
-                        .map_err(|e| ws::WsError::HandleError {
-                            message: e.to_string(),
-                        })?;
+                    cb(depth_update).await?;
                 }
             }
             MarketStreamType::AggTrade => {
@@ -330,9 +326,7 @@ impl MarketStream {
                     }
                 })?;
                 if let Some(cb) = agg_trade_cb {
-                    cb(agg_trade).await.map_err(|e| ws::WsError::HandleError {
-                        message: e.to_string(),
-                    })?;
+                    cb(agg_trade).await?;
                 }
             }
             MarketStreamType::Kline => {
@@ -342,9 +336,7 @@ impl MarketStream {
                     }
                 })?;
                 if let Some(cb) = kline_cb {
-                    cb(kline).await.map_err(|e| ws::WsError::HandleError {
-                        message: e.to_string(),
-                    })?;
+                    cb(kline).await?;
                 }
             }
             MarketStreamType::Ticker => {
@@ -354,9 +346,7 @@ impl MarketStream {
                     }
                 })?;
                 if let Some(cb) = ticker_cb {
-                    cb(ticker).await.map_err(|e| ws::WsError::HandleError {
-                        message: e.to_string(),
-                    })?;
+                    cb(ticker).await?;
                 }
             }
         }
