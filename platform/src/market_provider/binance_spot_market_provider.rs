@@ -6,7 +6,6 @@ use crate::{
 };
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use exchange::binance::spot::{
     market_api::MarketApi,
     market_stream::MarketStream,
@@ -118,14 +117,16 @@ pub struct BinanceSpotMarketProvider {
     config: Arc<Config>,
     api_rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     stream_rate_limiters: Option<Arc<Vec<RateLimiter>>>,
+    symbols: Arc<Vec<String>>,
+    kline_intervals: Arc<Vec<KlineInterval>>,
 
     market_api: Option<Arc<MarketApi>>,
     market_stream: Option<Arc<ArcSwap<MarketStream>>>,
 
-    klines: Arc<DashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
-    trades: Arc<DashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
-    depth: Arc<DashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
-    ticker_24hr: Arc<DashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
+    klines: Arc<HashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
+    trades: Arc<HashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
+    depth: Arc<HashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
+    ticker_24hr: Arc<HashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
     exchange_info: Option<Arc<ArcSwap<ExchangeInfo>>>,
 
     sender: broadcast::Sender<MarketEvent>,
@@ -168,16 +169,46 @@ impl BinanceSpotMarketProvider {
             .unwrap_or(1000);
         let (sender, receiver) = broadcast::channel(cap);
 
+        let symbols: Vec<String> =
+            config
+                .get("binance.spot.symbols")
+                .map_err(|e| PlatformError::ConfigError {
+                    message: format!("Failed to get symbols: {}", e),
+                })?;
+        let kline_intervals: Vec<KlineInterval> = config
+            .get("binance.spot.kline_intervals")
+            .map_err(|e| PlatformError::ConfigError {
+                message: format!("Failed to get kline_intervals: {}", e),
+            })?;
+
+        let mut klines = HashMap::new();
+        let mut trades = HashMap::new();
+        let mut depth = HashMap::new();
+        let mut ticker_24hr = HashMap::new();
+        for symbol in symbols.iter() {
+            trades.insert(symbol.clone(), Arc::new(RwLock::new(BTreeMap::new())));
+            depth.insert(symbol.clone(), Arc::new(RwLock::new(None)));
+            ticker_24hr.insert(symbol.clone(), Arc::new(RwLock::new(None)));
+            for interval in kline_intervals.iter() {
+                klines.insert(
+                    (symbol.clone(), interval.clone()),
+                    Arc::new(RwLock::new(BTreeMap::new())),
+                );
+            }
+        }
+
         Ok(Self {
             config: config.clone(),
             api_rate_limiters,
             stream_rate_limiters,
+            symbols: Arc::new(symbols),
+            kline_intervals: Arc::new(kline_intervals),
             market_api: None,
             market_stream: None,
-            klines: Arc::new(DashMap::new()),
-            trades: Arc::new(DashMap::new()),
-            depth: Arc::new(DashMap::new()),
-            ticker_24hr: Arc::new(DashMap::new()),
+            klines: Arc::new(klines),
+            trades: Arc::new(trades),
+            depth: Arc::new(depth),
+            ticker_24hr: Arc::new(ticker_24hr),
             exchange_info: None,
             sender,
             receiver,
@@ -212,27 +243,15 @@ fn create_market_api(
 async fn create_market_stream(
     market_api: Arc<MarketApi>,
     config: Arc<Config>,
+    symbols: Arc<Vec<String>>,
+    kline_intervals: Arc<Vec<KlineInterval>>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     sender: broadcast::Sender<MarketEvent>,
-    klines: Arc<DashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
-    trades: Arc<DashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
-    depth: Arc<DashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
-    ticker_24hr: Arc<DashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
+    klines: Arc<HashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
+    trades: Arc<HashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
+    depth: Arc<HashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
+    ticker_24hr: Arc<HashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
 ) -> Result<MarketStream> {
-    // 订阅的symbols
-    let symbols: Vec<String> =
-        config
-            .get("binance.spot.symbols")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get symbols: {}", e),
-            })?;
-    // 订阅的kline intervals
-    let kline_intervals: Vec<KlineInterval> =
-        config
-            .get("binance.spot.kline_intervals")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get kline_intervals: {}", e),
-            })?;
     // 连接url
     let stream_base_url: String =
         config
@@ -265,11 +284,17 @@ async fn create_market_stream(
         let trade_id = trade.agg_trade_id;
         let trade: Arc<Trade> = Arc::new(trade.into());
         Box::pin(async move {
-            let symbol_trades = trades_clone
-                .entry(trade.symbol.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
-                .value()
-                .clone();
+            let symbol_trades = match trades_clone.get(&trade.symbol) {
+                Some(entry) => entry.clone(),
+                None => {
+                    return Err(WsError::HandleError {
+                        message: format!(
+                            "Received trade for unsubscribed symbol: {}",
+                            &trade.symbol
+                        ),
+                    });
+                }
+            };
 
             let mut symbol_trades = symbol_trades.write().await;
             symbol_trades.insert(trade_id, trade.clone());
@@ -295,11 +320,18 @@ async fn create_market_stream(
         let kline_open_time = kline.open_time;
         let kline: Arc<KlineData> = Arc::new(kline.into());
         Box::pin(async move {
-            let symbol_klines = klines_clone
-                .entry((kline.symbol.clone(), kline.interval.clone()))
-                .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
-                .value()
-                .clone();
+            let symbol_klines =
+                match klines_clone.get(&(kline.symbol.clone(), kline.interval.clone().into())) {
+                    Some(entry) => entry.clone(),
+                    None => {
+                        return Err(WsError::HandleError {
+                            message: format!(
+                                "Received kline for unsubscribed symbol/interval: {} {:?}",
+                                &kline.symbol, &kline.interval
+                            ),
+                        });
+                    }
+                };
 
             let mut symbol_klines = symbol_klines.write().await;
             symbol_klines.insert(kline_open_time, kline.clone());
@@ -324,11 +356,18 @@ async fn create_market_stream(
         let sender_clone = sender_clone.clone();
         let ticker: Arc<Ticker24hr> = Arc::new(ticker.into());
         Box::pin(async move {
-            let current_ticker = ticker_24hr_clone
-                .entry(ticker.symbol.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(None)))
-                .value()
-                .clone();
+            let current_ticker = match ticker_24hr_clone.get(&ticker.symbol) {
+                Some(entry) => entry.clone(),
+                None => {
+                    return Err(WsError::HandleError {
+                        message: format!(
+                            "Received ticker for unsubscribed symbol: {}",
+                            &ticker.symbol
+                        ),
+                    });
+                }
+            };
+
             let mut current_ticker = current_ticker.write().await;
             if current_ticker.is_none()
                 || current_ticker.as_ref().unwrap().close_time < ticker.close_time
@@ -354,11 +393,18 @@ async fn create_market_stream(
         let sender_clone = sender_clone.clone();
         let market_api_clone = market_api_clone.clone();
         Box::pin(async move {
-            let symbol_depth_lock = depth_clone
-                .entry(depth_update.symbol.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(None)))
-                .value()
-                .clone();
+            let symbol_depth_lock = match depth_clone.get(&depth_update.symbol) {
+                Some(entry) => entry.clone(),
+                None => {
+                    return Err(WsError::HandleError {
+                        message: format!(
+                            "Received depth update for unsubscribed symbol: {}",
+                            &depth_update.symbol
+                        ),
+                    });
+                }
+            };
+
             let mut symbol_depth = symbol_depth_lock.write().await;
 
             if symbol_depth.is_some() {
@@ -448,11 +494,7 @@ async fn create_market_stream(
                 (trade_id, trade)
             })
             .collect::<Vec<(_, _)>>();
-        let symbol_trades = trades
-            .entry(symbol.to_string())
-            .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
-            .value()
-            .clone();
+        let symbol_trades = trades.get(symbol).unwrap().clone();
         let mut symbol_trades = symbol_trades.write().await;
         for (trade_id, trade) in api_trades.into_iter() {
             symbol_trades.insert(trade_id, trade);
@@ -486,9 +528,8 @@ async fn create_market_stream(
                 })
                 .collect::<Vec<(_, _)>>();
             let symbol_klines = klines
-                .entry((symbol.to_string(), interval.clone()))
-                .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
-                .value()
+                .get(&(symbol.to_string(), interval.clone()))
+                .unwrap()
                 .clone();
             let mut symbol_klines = symbol_klines.write().await;
             for (kline_open_time, kline) in api_klines.into_iter() {
@@ -514,6 +555,8 @@ impl MarketProvider for BinanceSpotMarketProvider {
         let market_stream = create_market_stream(
             market_api.clone(),
             self.config.clone(),
+            self.symbols.clone(),
+            self.kline_intervals.clone(),
             self.stream_rate_limiters.clone(),
             self.sender.clone(),
             self.klines.clone(),
@@ -575,6 +618,8 @@ impl MarketProvider for BinanceSpotMarketProvider {
         let market_stream = self.market_stream.as_ref().unwrap().clone();
         let market_api = self.market_api.as_ref().unwrap().clone();
         let config = self.config.clone();
+        let symbols = self.symbols.clone();
+        let kline_intervals = self.kline_intervals.clone();
         let stream_rate_limiters = self.stream_rate_limiters.clone();
         let sender = self.sender.clone();
         let klines = self.klines.clone();
@@ -601,6 +646,8 @@ impl MarketProvider for BinanceSpotMarketProvider {
                         match create_market_stream(
                             market_api.clone(),
                             config.clone(),
+                            symbols.clone(),
+                            kline_intervals.clone(),
                             stream_rate_limiters.clone(),
                             sender.clone(),
                             klines.clone(),

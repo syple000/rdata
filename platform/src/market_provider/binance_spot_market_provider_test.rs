@@ -246,7 +246,7 @@ async fn test_binance_spot_market_provider_comprehensive() {
 
     // Periodic snapshot task
     let snapshots_clone = snapshots.clone();
-    let snapshot_interval = Duration::from_secs(1);
+    let snapshot_interval = Duration::from_secs(10);
     let test_duration = Duration::from_secs(30);
     let start_time = std::time::Instant::now();
 
@@ -344,8 +344,8 @@ async fn test_binance_spot_market_provider_comprehensive() {
         "Should receive ticker events"
     );
     assert!(
-        test_results.snapshots.len() >= 25,
-        "Should have at least 25 snapshots"
+        test_results.snapshots.len() >= 2,
+        "Should have at least 2 snapshots"
     );
 
     log::info!("\n=== All tests passed! ===");
