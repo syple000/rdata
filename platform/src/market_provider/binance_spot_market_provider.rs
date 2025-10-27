@@ -122,10 +122,10 @@ pub struct BinanceSpotMarketProvider {
     market_api: Option<Arc<MarketApi>>,
     market_stream: Option<Arc<ArcSwap<MarketStream>>>,
 
-    klines: Arc<DashMap<(String, KlineInterval), RwLock<BTreeMap<u64, Arc<KlineData>>>>>,
-    trades: Arc<DashMap<String, RwLock<BTreeMap<u64, Arc<Trade>>>>>,
-    depth: Arc<DashMap<String, RwLock<Option<BinanceSpotDepthState>>>>,
-    ticker_24hr: Arc<DashMap<String, RwLock<Option<Arc<Ticker24hr>>>>>,
+    klines: Arc<DashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
+    trades: Arc<DashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
+    depth: Arc<DashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
+    ticker_24hr: Arc<DashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
     exchange_info: Option<Arc<ArcSwap<ExchangeInfo>>>,
 
     sender: broadcast::Sender<MarketEvent>,
@@ -214,10 +214,10 @@ async fn create_market_stream(
     config: Arc<Config>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     sender: broadcast::Sender<MarketEvent>,
-    klines: Arc<DashMap<(String, KlineInterval), RwLock<BTreeMap<u64, Arc<KlineData>>>>>,
-    trades: Arc<DashMap<String, RwLock<BTreeMap<u64, Arc<Trade>>>>>,
-    depth: Arc<DashMap<String, RwLock<Option<BinanceSpotDepthState>>>>,
-    ticker_24hr: Arc<DashMap<String, RwLock<Option<Arc<Ticker24hr>>>>>,
+    klines: Arc<DashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
+    trades: Arc<DashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
+    depth: Arc<DashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
+    ticker_24hr: Arc<DashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
 ) -> Result<MarketStream> {
     // 订阅的symbols
     let symbols: Vec<String> =
@@ -267,7 +267,9 @@ async fn create_market_stream(
         Box::pin(async move {
             let symbol_trades = trades_clone
                 .entry(trade.symbol.clone())
-                .or_insert_with(|| RwLock::new(BTreeMap::new()));
+                .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
+                .value()
+                .clone();
 
             let mut symbol_trades = symbol_trades.write().await;
             symbol_trades.insert(trade_id, trade.clone());
@@ -295,7 +297,9 @@ async fn create_market_stream(
         Box::pin(async move {
             let symbol_klines = klines_clone
                 .entry((kline.symbol.clone(), kline.interval.clone()))
-                .or_insert_with(|| RwLock::new(BTreeMap::new()));
+                .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
+                .value()
+                .clone();
 
             let mut symbol_klines = symbol_klines.write().await;
             symbol_klines.insert(kline_open_time, kline.clone());
@@ -322,7 +326,9 @@ async fn create_market_stream(
         Box::pin(async move {
             let current_ticker = ticker_24hr_clone
                 .entry(ticker.symbol.clone())
-                .or_insert_with(|| RwLock::new(None));
+                .or_insert_with(|| Arc::new(RwLock::new(None)))
+                .value()
+                .clone();
             let mut current_ticker = current_ticker.write().await;
             if current_ticker.is_none()
                 || current_ticker.as_ref().unwrap().close_time < ticker.close_time
@@ -348,10 +354,12 @@ async fn create_market_stream(
         let sender_clone = sender_clone.clone();
         let market_api_clone = market_api_clone.clone();
         Box::pin(async move {
-            let symbol_depth_ref = depth_clone
+            let symbol_depth_lock = depth_clone
                 .entry(depth_update.symbol.clone())
-                .or_insert_with(|| RwLock::new(None));
-            let mut symbol_depth = symbol_depth_ref.write().await;
+                .or_insert_with(|| Arc::new(RwLock::new(None)))
+                .value()
+                .clone();
+            let mut symbol_depth = symbol_depth_lock.write().await;
 
             if symbol_depth.is_some() {
                 match symbol_depth.as_mut().unwrap().update_depth(&depth_update) {
@@ -368,11 +376,16 @@ async fn create_market_stream(
                     Ok(None) => {
                         return Ok(());
                     }
-                    Err(_) => {} // 重新获取快照并更新
+                    Err(_) => {
+                        error!(
+                            "Depth update out of order for symbol {}, re-fetching snapshot",
+                            &depth_update.symbol
+                        );
+                    }
                 }
             }
-
             drop(symbol_depth);
+
             let mut state = BinanceSpotDepthState::from_depth(
                 &market_api_clone
                     .get_depth(GetDepthRequest {
@@ -393,7 +406,7 @@ async fn create_market_stream(
                     message: format!("Failed to update depth after fetch snapshot: {}", e),
                 })?;
 
-            let mut symbol_depth = symbol_depth_ref.write().await;
+            let mut symbol_depth = symbol_depth_lock.write().await;
             let depth = state.depth.clone();
             *symbol_depth = Some(state);
             drop(symbol_depth);
@@ -437,7 +450,9 @@ async fn create_market_stream(
             .collect::<Vec<(_, _)>>();
         let symbol_trades = trades
             .entry(symbol.to_string())
-            .or_insert_with(|| RwLock::new(BTreeMap::new()));
+            .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
+            .value()
+            .clone();
         let mut symbol_trades = symbol_trades.write().await;
         for (trade_id, trade) in api_trades.into_iter() {
             symbol_trades.insert(trade_id, trade);
@@ -472,7 +487,9 @@ async fn create_market_stream(
                 .collect::<Vec<(_, _)>>();
             let symbol_klines = klines
                 .entry((symbol.to_string(), interval.clone()))
-                .or_insert_with(|| RwLock::new(BTreeMap::new()));
+                .or_insert_with(|| Arc::new(RwLock::new(BTreeMap::new())))
+                .value()
+                .clone();
             let mut symbol_klines = symbol_klines.write().await;
             for (kline_open_time, kline) in api_klines.into_iter() {
                 symbol_klines.insert(kline_open_time, kline);
