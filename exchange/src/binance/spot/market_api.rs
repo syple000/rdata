@@ -1,11 +1,9 @@
 use super::super::errors::*;
 use super::super::utils::*;
-use super::models::market::*;
 use super::parser::*;
 use super::requests::market::*;
 use super::responses::market::*;
 use log::error;
-use log::info;
 use rate_limiter::RateLimiter;
 use std::sync::Arc;
 
@@ -62,149 +60,63 @@ impl MarketApi {
     }
 
     pub async fn get_klines(&self, req: GetKlinesRequest) -> Result<GetKlinesResponse> {
-        let mut start_time = req.start_time.unwrap_or(0);
-        let end_time = req.end_time.unwrap_or(0);
-        let batch_size = req.limit.unwrap_or(1000) as u32;
-
-        if start_time > 0 && start_time >= end_time {
-            return Err(BinanceError::ParametersInvalid {
-                message: format!(
-                    "start_time: {} must be less than end_time: {}",
-                    start_time, end_time
-                ),
-            });
+        let mut params = vec![
+            ("symbol", req.symbol.clone()),
+            ("interval", req.interval.as_str().to_string()),
+            ("limit", req.limit.unwrap_or(500).to_string()),
+        ];
+        if let Some(start_time) = req.start_time {
+            params.push(("startTime", start_time.to_string()));
+        }
+        if let Some(end_time) = req.end_time {
+            params.push(("endTime", end_time.to_string()));
         }
 
-        let mut klines = Vec::<KlineData>::new();
-        loop {
-            info!(
-                "get kline with parameters start_time: {}, end_time: {}, limit: {}",
-                start_time, end_time, batch_size
-            );
-            let mut params = vec![
-                ("symbol", req.symbol.clone()),
-                ("interval", req.interval.as_str().to_string()),
-                ("limit", batch_size.to_string()),
-            ];
-            if start_time > 0 {
-                params.push(("startTime", start_time.to_string()));
-                params.push(("endTime", end_time.to_string()));
-            }
+        let text = self
+            .send_request(reqwest::Method::GET, "/api/v3/klines", params, 2)
+            .await?;
 
-            let text = self
-                .send_request(reqwest::Method::GET, "/api/v3/klines", params, 2)
-                .await?;
-
-            let mut batch_klines = parse_klines(req.symbol.clone(), req.interval.clone(), &text)
-                .map_err(|e| {
-                    error!("Parse result: {:?} error: {:?}", text, e);
-                    BinanceError::ParseResultError {
-                        message: e.to_string(),
-                    }
-                })?;
-            batch_klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
-
-            if start_time > 0 {
-                let mut index = batch_klines.len();
-                for (i, kline) in batch_klines.iter().enumerate() {
-                    if kline.open_time > end_time {
-                        index = i;
-                        break;
-                    }
-                }
-                batch_klines.truncate(index);
-            }
-
-            klines.extend_from_slice(&batch_klines);
-
-            if batch_klines.len() < batch_size as usize {
-                break;
-            }
-            if start_time == 0 {
-                break;
-            }
-            start_time = batch_klines.last().unwrap().close_time + 1;
-        }
-
-        Ok(klines)
-    }
-
-    pub async fn get_agg_trades(&self, req: GetAggTradesRequest) -> Result<GetAggTradesResponse> {
-        let start_time = req.start_time.unwrap_or(0);
-        let end_time = req.end_time.unwrap_or(0);
-        let batch_size = req.limit.unwrap_or(1000) as u32;
-
-        if start_time > 0 && start_time >= end_time {
-            return Err(BinanceError::ParametersInvalid {
-                message: format!(
-                    "start_time: {} must be less than end_time: {}",
-                    start_time, end_time
-                ),
-            });
-        }
-
-        let mut agg_trades = Vec::<AggTrade>::new();
-        let mut from_id = req.from_id;
-
-        loop {
-            info!(
-                "get agg trades with parameters start_time: {}, end_time: {}, limit: {}, from_id: {:?}",
-                start_time, end_time, batch_size, from_id
-            );
-
-            let mut params = vec![
-                ("symbol", req.symbol.clone()),
-                ("limit", batch_size.to_string()),
-            ];
-
-            if let Some(id) = from_id {
-                params.push(("fromId", id.to_string()));
-            } else if start_time > 0 {
-                params.push(("startTime", start_time.to_string()));
-                params.push(("endTime", end_time.to_string()));
-            }
-
-            let text = self
-                .send_request(reqwest::Method::GET, "/api/v3/aggTrades", params, 4)
-                .await?;
-
-            let mut batch_trades = parse_agg_trades(req.symbol.clone(), &text).map_err(|e| {
+        let mut klines =
+            parse_klines(req.symbol.clone(), req.interval.clone(), &text).map_err(|e| {
                 error!("Parse result: {:?} error: {:?}", text, e);
                 BinanceError::ParseResultError {
                     message: e.to_string(),
                 }
             })?;
+        klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
 
-            batch_trades.sort_by(|a, b| a.agg_trade_id.cmp(&b.agg_trade_id));
+        Ok(klines)
+    }
 
-            if start_time > 0 {
-                let mut index = batch_trades.len();
-                for (i, trade) in batch_trades.iter().enumerate() {
-                    if trade.timestamp > end_time {
-                        index = i;
-                        break;
-                    }
-                }
-                batch_trades.truncate(index);
-            }
-
-            agg_trades.extend_from_slice(&batch_trades);
-
-            if batch_trades.len() < batch_size as usize {
-                break;
-            }
-            if start_time == 0 {
-                break;
-            }
-
-            if let Some(last_trade) = batch_trades.last() {
-                from_id = Some(last_trade.agg_trade_id + 1);
-            } else {
-                break;
-            }
+    pub async fn get_agg_trades(&self, req: GetAggTradesRequest) -> Result<GetAggTradesResponse> {
+        let mut params = vec![
+            ("symbol", req.symbol.clone()),
+            ("limit", req.limit.unwrap_or(500).to_string()),
+        ];
+        if let Some(from_id) = req.from_id {
+            params.push(("fromId", from_id.to_string()));
+        }
+        if let Some(start_time) = req.start_time {
+            params.push(("startTime", start_time.to_string()));
+        }
+        if let Some(end_time) = req.end_time {
+            params.push(("endTime", end_time.to_string()));
         }
 
-        Ok(agg_trades)
+        let text = self
+            .send_request(reqwest::Method::GET, "/api/v3/aggTrades", params, 4)
+            .await?;
+
+        let mut trades = parse_agg_trades(req.symbol.clone(), &text).map_err(|e| {
+            error!("Parse result: {:?} error: {:?}", text, e);
+            BinanceError::ParseResultError {
+                message: e.to_string(),
+            }
+        })?;
+
+        trades.sort_by(|a, b| a.agg_trade_id.cmp(&b.agg_trade_id));
+
+        Ok(trades)
     }
 
     pub async fn get_depth(&self, req: GetDepthRequest) -> Result<GetDepthResponse> {

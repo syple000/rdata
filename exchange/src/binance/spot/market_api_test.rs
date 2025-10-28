@@ -48,9 +48,9 @@ async fn test_market_get_agg_trades() {
     let resp = market
         .get_agg_trades(GetAggTradesRequest {
             symbol: "BTCUSDT".to_string(),
-            from_id: None,
-            start_time: Some(time::get_current_milli_timestamp() - 60 * 1000),
-            end_time: Some(time::get_current_milli_timestamp()),
+            from_id: Some(3323002),
+            start_time: None, // Some(time::get_current_milli_timestamp() - 20 * 60 * 1000),
+            end_time: None,   // Some(time::get_current_milli_timestamp()),
             limit: Some(10),
         })
         .await;
