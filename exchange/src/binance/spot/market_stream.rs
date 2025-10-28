@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use time::LatencyGuard;
 use tokio_util::sync::CancellationToken;
 use ws::RecvMsg;
 use ws::SendMsg;
@@ -275,6 +276,7 @@ impl MarketStream {
             >,
         >,
     ) -> ws::Result<()> {
+        let latency_guard = LatencyGuard::new("MarketStream::handle::init");
         let text = match msg {
             RecvMsg::Text { msg_id: _, content } => content,
             RecvMsg::Binary { msg_id: _, data } => std::str::from_utf8(&data)
@@ -287,9 +289,11 @@ impl MarketStream {
                 return Ok(());
             }
         };
+        drop(latency_guard);
 
         info!("Received message: {}", text);
 
+        let _lg = LatencyGuard::new("MarketStream::handle::preprocess");
         #[derive(Deserialize)]
         struct StreamMsg<'a> {
             stream: String,
@@ -307,6 +311,9 @@ impl MarketStream {
             });
         }
         let sub_detail = sub_details.get(stream_msg.stream.as_str()).unwrap();
+        drop(_lg);
+
+        let _lg = LatencyGuard::new("MarketStream::handle::process");
         match sub_detail.stream_type {
             MarketStreamType::UpdateDepth => {
                 let depth_update =

@@ -2211,6 +2211,9 @@ dependencies = [
 [[package]]
 name = "time"
 version = "0.1.0"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "tiny-keccak"

@@ -20,6 +20,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use time::LatencyGuard;
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 use ws::WsError;
@@ -27,8 +28,8 @@ use ws::WsError;
 struct BinanceSpotDepthState {
     symbol: String,
     last_update_id: u64,
-    bids: HashMap<Decimal, PriceLevel>,
-    asks: HashMap<Decimal, PriceLevel>,
+    bids: BTreeMap<Decimal, PriceLevel>,
+    asks: BTreeMap<Decimal, PriceLevel>,
     timestamp: u64,
 
     depth: Arc<DepthData>, // snapshot
@@ -36,25 +37,56 @@ struct BinanceSpotDepthState {
 
 impl BinanceSpotDepthState {
     pub fn from_depth(depth: &models::DepthData) -> Self {
-        let mut bids = HashMap::new();
-        let mut asks = HashMap::new();
-        for bid in depth.bids.iter() {
-            bids.insert(bid.price.clone(), bid.clone().into());
-        }
-        for ask in depth.asks.iter() {
-            asks.insert(ask.price.clone(), ask.clone().into());
-        }
+        let _lg = LatencyGuard::new("BinanceSpotDepthState::from_depth");
+
+        let _lg_1 = LatencyGuard::new("BinanceSpotDepthState::from_depth::asks_bids");
+        let bids = depth
+            .bids
+            .iter()
+            .map(|bid| {
+                (
+                    bid.price.clone(),
+                    PriceLevel {
+                        price: bid.price.clone(),
+                        quantity: bid.quantity.clone(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let asks = depth
+            .asks
+            .iter()
+            .map(|ask| {
+                (
+                    ask.price.clone(),
+                    PriceLevel {
+                        price: ask.price.clone(),
+                        quantity: ask.quantity.clone(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        drop(_lg_1);
+
+        let last_update_id = depth.last_update_id;
+        let timestamp = depth.timestamp;
+
+        let _lg_2 = LatencyGuard::new("BinanceSpotDepthState::from_depth::depth_into");
+        let depth: Arc<DepthData> = Arc::new((*depth).clone().into());
+        drop(_lg_2);
+
         Self {
             symbol: depth.symbol.clone(),
-            last_update_id: depth.last_update_id,
+            last_update_id,
             bids,
             asks,
-            timestamp: depth.timestamp,
-            depth: Arc::new((*depth).clone().into()),
+            timestamp,
+            depth,
         }
     }
 
     pub fn update_depth(&mut self, update: &models::DepthUpdate) -> Result<Option<Arc<DepthData>>> {
+        let _lg = LatencyGuard::new("BinanceSpotDepthState::update");
         if self.symbol != update.symbol {
             return Err(PlatformError::MarketProviderError {
                 message: format!(
@@ -69,6 +101,7 @@ impl BinanceSpotDepthState {
         }
 
         if update.first_update_id <= self.last_update_id + 1 {
+            let _lg = LatencyGuard::new("BinanceSpotDepthState::update::apply_update");
             for bid in update.bids.iter() {
                 if bid.quantity.is_zero() {
                     self.bids.remove(&bid.price);
@@ -85,21 +118,16 @@ impl BinanceSpotDepthState {
             }
             self.last_update_id = update.last_update_id;
             self.timestamp = update.timestamp;
+            drop(_lg);
 
+            let _lg = LatencyGuard::new("BinanceSpotDepthState::update::depth");
             self.depth = Arc::new(DepthData {
                 symbol: self.symbol.clone(),
-                bids: {
-                    let mut bids: Vec<PriceLevel> = self.bids.values().cloned().collect();
-                    bids.sort_by(|a, b| b.price.cmp(&a.price));
-                    bids
-                },
-                asks: {
-                    let mut asks: Vec<PriceLevel> = self.asks.values().cloned().collect();
-                    asks.sort_by(|a, b| a.price.cmp(&b.price));
-                    asks
-                },
+                bids: self.bids.values().rev().take(500).cloned().collect(),
+                asks: self.asks.values().take(500).cloned().collect(),
                 timestamp: self.timestamp,
             });
+            drop(_lg);
 
             return Ok(Some(self.depth.clone()));
         }
@@ -408,6 +436,9 @@ async fn create_market_stream(
             let mut symbol_depth = symbol_depth_lock.write().await;
 
             if symbol_depth.is_some() {
+                let _lg = LatencyGuard::new(
+                    "BinanceSpotMarketStream::depth_update_callback::update_depth",
+                );
                 match symbol_depth.as_mut().unwrap().update_depth(&depth_update) {
                     Ok(Some(depth)) => {
                         drop(symbol_depth);
@@ -432,6 +463,8 @@ async fn create_market_stream(
             }
             drop(symbol_depth);
 
+            let _lg =
+                LatencyGuard::new("BinanceSpotMarketStream::depth_update_callback::from_depth");
             let mut state = BinanceSpotDepthState::from_depth(
                 &market_api_clone
                     .get_depth(GetDepthRequest {
@@ -466,14 +499,17 @@ async fn create_market_stream(
         })
     });
 
+    let init_latency_guard = time::LatencyGuard::new("BinanceSpotMarketStream::init");
     market_stream
         .init()
         .await
         .map_err(|e| PlatformError::MarketProviderError {
             message: format!("Failed to init market_stream: {}", e),
         })?;
+    drop(init_latency_guard);
 
     // 在stream启动后，通过api获取trades/klines初始数据，并覆盖一次
+    let _ = time::LatencyGuard::new("BinanceSpotMarketStream::init_data");
     for symbol in symbols.iter() {
         let api_trades = market_api
             .get_agg_trades(GetAggTradesRequest {
@@ -547,6 +583,7 @@ async fn create_market_stream(
 #[async_trait]
 impl MarketProvider for BinanceSpotMarketProvider {
     async fn init(&mut self) -> Result<()> {
+        let _lg = LatencyGuard::new("BinanceSpotMarketProvider::init");
         let market_api = Arc::new(create_market_api(
             self.config.clone(),
             self.api_rate_limiters.clone(),
@@ -582,8 +619,11 @@ impl MarketProvider for BinanceSpotMarketProvider {
                 .into();
             Ok(exchange_info)
         };
+        let get_exchange_info_latency_guard =
+            time::LatencyGuard::new("BinanceSpotMarketProvider::get_exchange_info");
         let exchange_info = get_exchange_info(self.market_api.as_ref().unwrap().clone()).await?;
         self.exchange_info = Some(Arc::new(ArcSwap::from_pointee(exchange_info)));
+        drop(get_exchange_info_latency_guard);
 
         // 定期刷新exchange_info
         let market_api = self.market_api.as_ref().unwrap().clone();

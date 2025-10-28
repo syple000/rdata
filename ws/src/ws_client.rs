@@ -8,6 +8,7 @@ use scopeguard::defer;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use time::LatencyGuard;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
@@ -240,6 +241,7 @@ impl Client {
     }
 
     pub async fn connect(&mut self) -> Result<()> {
+        let _lg = LatencyGuard::new("WsClient::connect");
         let connect_timeout = self.config.connect_timeout;
         if let Some(proxy_url_str) = self.config.proxy_url.as_ref() {
             let proxy_url = Url::parse(proxy_url_str)
@@ -365,6 +367,7 @@ impl Client {
     }
 
     pub async fn call(&self, msg: SendMsg) -> Result<RecvMsg> {
+        let _lg = LatencyGuard::new("WsClient::call");
         if msg.msg_id().is_none() {
             return Err(WsError::message_id_required());
         }
@@ -429,6 +432,7 @@ impl Client {
                     return Err(WsError::disconnected());
                 }
                 msg = receiver.next() => {
+                    let _lg = time::LatencyGuard::new("WsClient::recv_loop::process_msg");
                     if let None = msg {
                         return Err(WsError::receive_failed(std::io::Error::new(
                             std::io::ErrorKind::UnexpectedEof,
@@ -442,6 +446,7 @@ impl Client {
                     }
                     let msg = msg.unwrap();
                     if let Some(recv_msg) = RecvMsg::from_websocket_message(msg, calc_recv_msg_id.as_ref()) {
+                        let _lg = time::LatencyGuard::new("WsClient::recv_loop::handle");
                         match &recv_msg {
                             RecvMsg::Text { .. } | RecvMsg::Binary { .. } => {
                                 let mut ch: Option<Sender<RecvMsg>> = None;
