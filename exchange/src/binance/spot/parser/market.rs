@@ -89,9 +89,15 @@ pub fn parse_klines(
     data: &str,
 ) -> Result<Vec<KlineData>, serde_json::Error> {
     let raw_klines: Vec<KlineDataRaw> = serde_json::from_str(data)?;
+    let len = raw_klines.len();
     Ok(raw_klines
         .into_iter()
-        .map(|raw| (symbol.clone(), interval.clone(), raw).into())
+        .enumerate()
+        .map(|(i, raw)| {
+            let mut kline_data: KlineData = (symbol.clone(), interval.clone(), raw).into();
+            kline_data.is_closed = i != len - 1;
+            kline_data
+        })
         .collect())
 }
 

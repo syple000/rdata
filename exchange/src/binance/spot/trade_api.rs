@@ -299,7 +299,7 @@ impl TradeApi {
         }
 
         let mut all_orders = Vec::<crate::binance::spot::models::Order>::new();
-        let mut current_order_id = req.order_id;
+        let mut current_order_id = req.from_order_id;
 
         loop {
             info!(
@@ -384,7 +384,7 @@ impl TradeApi {
         }
 
         // 验证参数组合的合法性
-        if (req.from_id.is_some() || req.order_id.is_some())
+        if (req.from_id.is_some() || req.from_order_id.is_some())
             && (req.start_time.is_some() || req.end_time.is_some())
         {
             return Err(BinanceError::ParametersInvalid {
@@ -400,7 +400,7 @@ impl TradeApi {
         loop {
             info!(
                 "get trades with parameters symbol: {}, start_time: {}, end_time: {}, limit: {}, order_id: {:?}, from_id: {:?}",
-                req.symbol, start_time, end_time, batch_size, req.order_id, current_from_id
+                req.symbol, start_time, end_time, batch_size, req.from_order_id, current_from_id
             );
 
             let mut params = vec![
@@ -408,8 +408,8 @@ impl TradeApi {
                 ("limit", batch_size.to_string()),
             ];
 
-            let weight = if req.order_id.is_some() {
-                params.push(("orderId", req.order_id.unwrap().to_string()));
+            let weight = if req.from_order_id.is_some() {
+                params.push(("orderId", req.from_order_id.unwrap().to_string()));
                 5
             } else {
                 20

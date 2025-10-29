@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+pub enum FetchStrategy {
+    CacheOnly,
+    CacheOrApi,
+    ApiOnly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SymbolStatus {
@@ -41,6 +47,7 @@ pub enum OrderType {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderStatus {
     New,
+    PendingNew,
     PartiallyFilled,
     Filled,
     Canceled,

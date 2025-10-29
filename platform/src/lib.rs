@@ -1,4 +1,5 @@
 pub mod config;
+pub mod conversions;
 pub mod errors;
 pub mod market_provider;
 pub mod models;

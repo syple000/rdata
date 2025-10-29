@@ -14,6 +14,7 @@ pub struct KlineData {
     pub close: Decimal,
     pub volume: Decimal,
     pub quote_volume: Decimal,
+    pub is_closed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

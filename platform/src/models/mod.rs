@@ -7,4 +7,8 @@ pub use enums::*;
 pub mod trade;
 pub use trade::*;
 
-pub mod binance_spot_conversion;
+pub mod market_reqs;
+pub use market_reqs::*;
+
+pub mod trade_reqs;
+pub use trade_reqs::*;

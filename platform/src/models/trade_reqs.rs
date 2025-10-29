@@ -1,10 +1,9 @@
+use crate::models::{FetchStrategy, OrderSide, OrderType, TimeInForce};
 use rust_decimal::Decimal;
-
-use crate::binance::spot::models::{OrderType, Side, TimeInForce};
 
 pub struct PlaceOrderRequest {
     pub symbol: String,
-    pub side: Side,
+    pub side: OrderSide,
     pub r#type: OrderType,
     pub time_in_force: Option<TimeInForce>, // LIMIT/STOP_LOSS_LIMIT/TAKE_PROFIT_LIMIT
     pub quantity: Option<Decimal>, // LIMIT/MARKET/STOP_LOSS/STOP_LOSS_LIMIT/TAKE_PROFIT/TAKE_PROFIT_LIMIT/LIMIT_MAKER
@@ -16,36 +15,38 @@ pub struct PlaceOrderRequest {
 
 pub struct CancelOrderRequest {
     pub symbol: String,
-    pub order_id: Option<u64>,
+    pub order_id: Option<String>,
     pub orig_client_order_id: Option<String>,
     pub new_client_order_id: Option<String>,
 }
 
-pub struct GetAccountRequest {}
-
 pub struct GetOrderRequest {
+    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
-    pub order_id: Option<u64>,
+    pub order_id: Option<String>,
     pub orig_client_order_id: Option<String>,
 }
 
 pub struct GetOpenOrdersRequest {
+    pub fetch_strategy: FetchStrategy,
     pub symbol: Option<String>,
 }
 
 pub struct GetAllOrdersRequest {
+    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
-    pub from_order_id: Option<u64>, // 仅返回该id以后的订单
+    pub from_order_id: Option<String>,
     pub start_time: Option<u64>,
     pub end_time: Option<u64>,
-    pub limit: Option<u32>, // default 500; max 1000
+    pub limit: Option<u32>,
 }
 
-pub struct GetTradesRequest {
+pub struct GetUserTradesRequest {
+    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
-    pub from_order_id: Option<u64>,
-    pub from_id: Option<u64>, // 仅返回该id以后的订单
+    pub from_order_id: Option<String>,
+    pub from_id: Option<String>,
     pub start_time: Option<u64>,
     pub end_time: Option<u64>,
-    pub limit: Option<u32>, // default 500; max 1000
+    pub limit: Option<u32>,
 }

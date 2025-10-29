@@ -294,7 +294,7 @@ async fn test_place_valid_limit_order() {
             let get_orders_result = trade_api
                 .get_all_orders(GetAllOrdersRequest {
                     symbol: "BTCUSDT".to_string(),
-                    order_id: None,
+                    from_order_id: None,
                     start_time: Some(time::get_current_milli_timestamp() - 60 * 1000),
                     end_time: Some(time::get_current_milli_timestamp()),
                     limit: Some(10),
@@ -483,7 +483,7 @@ async fn test_get_all_orders() {
 
     let req = GetAllOrdersRequest {
         symbol: "BTCUSDT".to_string(),
-        order_id: None,
+        from_order_id: None,
         start_time: Some(time::get_current_milli_timestamp() - 24 * 60 * 60 * 1000), // 24小时前
         end_time: Some(time::get_current_milli_timestamp()),
         limit: Some(4),
@@ -508,7 +508,7 @@ async fn test_get_trades() {
 
     let req = GetTradesRequest {
         symbol: "BTCUSDT".to_string(),
-        order_id: None,
+        from_order_id: None,
         from_id: None,
         start_time: Some(time::get_current_milli_timestamp() - 24 * 60 * 60 * 1000), // 24小时前
         end_time: Some(time::get_current_milli_timestamp()),

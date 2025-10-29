@@ -41,23 +41,3 @@ pub struct Balance {
     pub free: Decimal,
     pub locked: Decimal,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlaceOrderRequest {
-    pub symbol: String,
-    pub side: OrderSide,
-    pub r#type: OrderType,
-    pub time_in_force: Option<TimeInForce>, // LIMIT/STOP_LOSS_LIMIT/TAKE_PROFIT_LIMIT
-    pub quantity: Option<Decimal>, // LIMIT/MARKET/STOP_LOSS/STOP_LOSS_LIMIT/TAKE_PROFIT/TAKE_PROFIT_LIMIT/LIMIT_MAKER
-    pub price: Option<Decimal>,    // LIMIT/STOP_LOSS_LIMIT/TAKE_PROFIT_LIMIT/LIMIT_MAKER
-    pub client_order_id: Option<String>,
-    pub stop_price: Option<Decimal>, // STOP_LOSS/STOP_LOSS_LIMIT/TAKE_PROFIT/TAKE_PROFIT_LIMIT
-    pub iceberg_qty: Option<Decimal>, // LIMIT/LIMIT_MAKER
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CancelOrderRequest {
-    pub symbol: String,
-    pub order_id: Option<String>,
-    pub client_order_id: Option<String>,
-}
