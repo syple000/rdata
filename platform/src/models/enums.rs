@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+pub enum MarketType {
+    BinanceSpot,
+}
+
 pub enum FetchStrategy {
     CacheOnly,
     CacheOrApi,
@@ -13,15 +17,6 @@ pub enum SymbolStatus {
     Halted,
     Break,
     EndOfDay,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum MarketType {
-    Spot,
-    Margin,
-    Futures,
-    Option,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

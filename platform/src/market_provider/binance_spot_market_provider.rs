@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     errors::{PlatformError, Result},
-    market_provider::{MarketEvent, MarketProvider},
+    market_provider::MarketProvider,
     models::{DepthData, ExchangeInfo, KlineData, KlineInterval, PriceLevel, Ticker24hr, Trade},
 };
 use arc_swap::ArcSwap;
@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use exchange::binance::spot::{
     market_api::MarketApi,
     market_stream::MarketStream,
-    models,
+    models::{self, AggTrade},
     requests::{GetAggTradesRequest, GetDepthRequest, GetExchangeInfoRequest, GetKlinesRequest},
 };
 use log::error;
@@ -25,17 +25,15 @@ use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
 use ws::WsError;
 
-struct BinanceSpotDepthState {
+struct DepthState {
     symbol: String,
     last_update_id: u64,
     bids: BTreeMap<Decimal, PriceLevel>,
     asks: BTreeMap<Decimal, PriceLevel>,
     timestamp: u64,
-
-    depth: Arc<DepthData>, // snapshot
 }
 
-impl BinanceSpotDepthState {
+impl DepthState {
     pub fn from_depth(depth: &models::DepthData) -> Self {
         let _lg = LatencyGuard::new("BinanceSpotDepthState::from_depth");
 
@@ -71,21 +69,16 @@ impl BinanceSpotDepthState {
         let last_update_id = depth.last_update_id;
         let timestamp = depth.timestamp;
 
-        let _lg_2 = LatencyGuard::new("BinanceSpotDepthState::from_depth::depth_into");
-        let depth: Arc<DepthData> = Arc::new((*depth).clone().into());
-        drop(_lg_2);
-
         Self {
             symbol: depth.symbol.clone(),
             last_update_id,
             bids,
             asks,
             timestamp,
-            depth,
         }
     }
 
-    pub fn update_depth(&mut self, update: &models::DepthUpdate) -> Result<Option<Arc<DepthData>>> {
+    pub fn update_depth(&mut self, update: &models::DepthUpdate) -> Result<bool> {
         let _lg = LatencyGuard::new("BinanceSpotDepthState::update");
         if self.symbol != update.symbol {
             return Err(PlatformError::MarketProviderError {
@@ -97,7 +90,7 @@ impl BinanceSpotDepthState {
         }
 
         if update.last_update_id <= self.last_update_id {
-            return Ok(None);
+            return Ok(false);
         }
 
         if update.first_update_id <= self.last_update_id + 1 {
@@ -120,16 +113,7 @@ impl BinanceSpotDepthState {
             self.timestamp = update.timestamp;
             drop(_lg);
 
-            let _lg = LatencyGuard::new("BinanceSpotDepthState::update::depth");
-            self.depth = Arc::new(DepthData {
-                symbol: self.symbol.clone(),
-                bids: self.bids.values().rev().take(500).cloned().collect(),
-                asks: self.asks.values().take(500).cloned().collect(),
-                timestamp: self.timestamp,
-            });
-            drop(_lg);
-
-            return Ok(Some(self.depth.clone()));
+            return Ok(true);
         }
 
         Err(PlatformError::MarketProviderError {
@@ -139,29 +123,33 @@ impl BinanceSpotDepthState {
             ),
         })
     }
+
+    pub fn depth(&self) -> DepthData {
+        DepthData {
+            symbol: self.symbol.clone(),
+            bids: self.bids.values().rev().cloned().collect(),
+            asks: self.asks.values().cloned().collect(),
+            timestamp: self.timestamp,
+        }
+    }
 }
 
 pub struct BinanceSpotMarketProvider {
     config: Arc<Config>,
     api_rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     stream_rate_limiters: Option<Arc<Vec<RateLimiter>>>,
-    symbols: Arc<Vec<String>>,
-    kline_intervals: Arc<Vec<KlineInterval>>,
 
     market_api: Option<Arc<MarketApi>>,
-    market_stream: Option<Arc<ArcSwap<MarketStream>>>,
+    market_stream: Option<Arc<ArcSwap<MarketStream>>>, // stream当前订阅后初始化，不支持后续订阅或取消订阅
 
-    klines: Arc<HashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
-    trades: Arc<HashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
-    depth: Arc<HashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
-    ticker_24hr: Arc<HashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
-    exchange_info: Option<Arc<ArcSwap<ExchangeInfo>>>,
-
-    sender: broadcast::Sender<MarketEvent>,
-    #[allow(dead_code)]
-    receiver: broadcast::Receiver<MarketEvent>,
-
-    shutdown_token: CancellationToken,
+    kline_sender: broadcast::Sender<KlineData>,
+    kline_receiver: broadcast::Receiver<KlineData>,
+    trade_sender: broadcast::Sender<Trade>,
+    trade_receiver: broadcast::Receiver<Trade>,
+    depth_sender: broadcast::Sender<DepthData>,
+    depth_receiver: broadcast::Receiver<DepthData>,
+    ticker_sender: broadcast::Sender<Ticker24hr>,
+    ticker_receiver: broadcast::Receiver<Ticker24hr>,
 }
 
 impl BinanceSpotMarketProvider {
@@ -192,55 +180,38 @@ impl BinanceSpotMarketProvider {
             )
         });
 
-        let cap = config
-            .get("binance.spot.market_event_channel_capacity")
-            .unwrap_or(1000);
-        let (sender, receiver) = broadcast::channel(cap);
+        let kline_chan_cap = config
+            .get("binance.spot.kline_event_channel_capacity")
+            .unwrap_or(5000);
+        let trade_chan_cap = config
+            .get("binance.spot.trade_event_channel_capacity")
+            .unwrap_or(5000);
+        let depth_chan_cap = config
+            .get("binance.spot.depth_event_channel_capacity")
+            .unwrap_or(5000);
+        let ticker_chan_cap = config
+            .get("binance.spot.ticker_event_channel_capacity")
+            .unwrap_or(5000);
 
-        let symbols: Vec<String> =
-            config
-                .get("binance.spot.symbols")
-                .map_err(|e| PlatformError::ConfigError {
-                    message: format!("Failed to get symbols: {}", e),
-                })?;
-        let kline_intervals: Vec<KlineInterval> = config
-            .get("binance.spot.kline_intervals")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get kline_intervals: {}", e),
-            })?;
-
-        let mut klines = HashMap::new();
-        let mut trades = HashMap::new();
-        let mut depth = HashMap::new();
-        let mut ticker_24hr = HashMap::new();
-        for symbol in symbols.iter() {
-            trades.insert(symbol.clone(), Arc::new(RwLock::new(BTreeMap::new())));
-            depth.insert(symbol.clone(), Arc::new(RwLock::new(None)));
-            ticker_24hr.insert(symbol.clone(), Arc::new(RwLock::new(None)));
-            for interval in kline_intervals.iter() {
-                klines.insert(
-                    (symbol.clone(), interval.clone()),
-                    Arc::new(RwLock::new(BTreeMap::new())),
-                );
-            }
-        }
+        let (kline_sender, kline_receiver) = broadcast::channel(kline_chan_cap);
+        let (trade_sender, trade_receiver) = broadcast::channel(trade_chan_cap);
+        let (depth_sender, depth_receiver) = broadcast::channel(depth_chan_cap);
+        let (ticker_sender, ticker_receiver) = broadcast::channel(ticker_chan_cap);
 
         Ok(Self {
-            config: config.clone(),
+            config,
             api_rate_limiters,
             stream_rate_limiters,
-            symbols: Arc::new(symbols),
-            kline_intervals: Arc::new(kline_intervals),
             market_api: None,
             market_stream: None,
-            klines: Arc::new(klines),
-            trades: Arc::new(trades),
-            depth: Arc::new(depth),
-            ticker_24hr: Arc::new(ticker_24hr),
-            exchange_info: None,
-            sender,
-            receiver,
-            shutdown_token: CancellationToken::new(),
+            kline_sender,
+            kline_receiver,
+            trade_sender,
+            trade_receiver,
+            depth_sender,
+            depth_receiver,
+            ticker_sender,
+            ticker_receiver,
         })
     }
 }
@@ -271,16 +242,12 @@ fn create_market_api(
 async fn create_market_stream(
     market_api: Arc<MarketApi>,
     config: Arc<Config>,
-    symbols: Arc<Vec<String>>,
-    kline_intervals: Arc<Vec<KlineInterval>>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
-    sender: broadcast::Sender<MarketEvent>,
-    klines: Arc<HashMap<(String, KlineInterval), Arc<RwLock<BTreeMap<u64, Arc<KlineData>>>>>>,
-    trades: Arc<HashMap<String, Arc<RwLock<BTreeMap<u64, Arc<Trade>>>>>>,
-    depth: Arc<HashMap<String, Arc<RwLock<Option<BinanceSpotDepthState>>>>>,
-    ticker_24hr: Arc<HashMap<String, Arc<RwLock<Option<Arc<Ticker24hr>>>>>>,
+    kline_sender: broadcast::Sender<KlineData>,
+    trade_sender: broadcast::Sender<Trade>,
+    depth_sender: broadcast::Sender<DepthData>,
+    ticker_sender: broadcast::Sender<Ticker24hr>,
 ) -> Result<MarketStream> {
-    // 连接url
     let stream_base_url: String =
         config
             .get("binance.spot.stream_base_url")
@@ -291,290 +258,139 @@ async fn create_market_stream(
 
     let mut market_stream = MarketStream::new(stream_base_url, proxy_url, rate_limiters);
 
-    // 订阅
-    let max_trade_cnt: usize = config.get("binance.spot.max_trade_cnt").unwrap_or(1000) as usize;
-    let max_kline_cnt: usize = config.get("binance.spot.max_kline_cnt").unwrap_or(1000) as usize;
-    for symbol in symbols.iter() {
+    let subscribed_symbols = config
+        .get::<Vec<String>>("binance.spot.subscribed_symbols")
+        .map_err(|e| PlatformError::ConfigError {
+            message: format!("Failed to get subscribed_symbols: {}", e),
+        })?;
+    let subscribed_kline_intervals = config
+        .get::<Vec<KlineInterval>>("binance.spot.subscribed_kline_intervals")
+        .map_err(|e| PlatformError::ConfigError {
+            message: format!("Failed to get subscribed_kline_intervals: {}", e),
+        })?;
+    for symbol in subscribed_symbols.iter() {
         market_stream.subscribe_agg_trade(symbol);
         market_stream.subscribe_depth_update(symbol);
         market_stream.subscribe_ticker(symbol);
-        for interval in kline_intervals.iter() {
+        for interval in subscribed_kline_intervals.iter() {
             market_stream.subscribe_kline(symbol, &interval.clone().into());
         }
     }
 
-    // 注册回调
-    let trades_clone = trades.clone();
-    let sender_clone = sender.clone();
     market_stream.register_agg_trade_callback(move |trade| {
-        let trades_clone = trades_clone.clone();
-        let sender_clone = sender_clone.clone();
-        let trade_id = trade.agg_trade_id;
-        let trade: Arc<Trade> = Arc::new(trade.into());
+        let trade_sender_clone = trade_sender.clone();
         Box::pin(async move {
-            let symbol_trades = match trades_clone.get(&trade.symbol) {
-                Some(entry) => entry.clone(),
-                None => {
-                    return Err(WsError::HandleError {
-                        message: format!(
-                            "Received trade for unsubscribed symbol: {}",
-                            &trade.symbol
-                        ),
-                    });
-                }
-            };
-
-            let mut symbol_trades = symbol_trades.write().await;
-            symbol_trades.insert(trade_id, trade.clone());
-            if symbol_trades.len() > max_trade_cnt {
-                symbol_trades.pop_first();
-            }
-            drop(symbol_trades);
-
-            sender_clone
-                .send(MarketEvent::Trade(trade.clone()))
+            let _ = trade_sender_clone
+                .send(trade.into())
                 .map_err(|e| WsError::HandleError {
                     message: format!("Failed to send trade event: {}", e),
                 })?;
             Ok(())
         })
     });
-
-    let klines_clone = klines.clone();
-    let sender_clone = sender.clone();
     market_stream.register_kline_callback(move |kline| {
-        let klines_clone = klines_clone.clone();
-        let sender_clone = sender_clone.clone();
-        let kline_open_time = kline.open_time;
-        let kline: Arc<KlineData> = Arc::new(kline.into());
+        let kline_sender_clone = kline_sender.clone();
         Box::pin(async move {
-            let symbol_klines =
-                match klines_clone.get(&(kline.symbol.clone(), kline.interval.clone().into())) {
-                    Some(entry) => entry.clone(),
-                    None => {
-                        return Err(WsError::HandleError {
-                            message: format!(
-                                "Received kline for unsubscribed symbol/interval: {} {:?}",
-                                &kline.symbol, &kline.interval
-                            ),
-                        });
-                    }
-                };
-
-            let mut symbol_klines = symbol_klines.write().await;
-            symbol_klines.insert(kline_open_time, kline.clone());
-            if symbol_klines.len() > max_kline_cnt {
-                symbol_klines.pop_first();
-            }
-            drop(symbol_klines);
-
-            sender_clone
-                .send(MarketEvent::Kline(kline.clone()))
+            let _ = kline_sender_clone
+                .send(kline.into())
                 .map_err(|e| WsError::HandleError {
                     message: format!("Failed to send kline event: {}", e),
                 })?;
             Ok(())
         })
     });
-
-    let ticker_24hr_clone = ticker_24hr.clone();
-    let sender_clone = sender.clone();
     market_stream.register_ticker_callback(move |ticker| {
-        let ticker_24hr_clone = ticker_24hr_clone.clone();
-        let sender_clone = sender_clone.clone();
-        let ticker: Arc<Ticker24hr> = Arc::new(ticker.into());
+        let ticker_sender_clone = ticker_sender.clone();
         Box::pin(async move {
-            let current_ticker = match ticker_24hr_clone.get(&ticker.symbol) {
-                Some(entry) => entry.clone(),
-                None => {
-                    return Err(WsError::HandleError {
-                        message: format!(
-                            "Received ticker for unsubscribed symbol: {}",
-                            &ticker.symbol
-                        ),
-                    });
-                }
-            };
-
-            let mut current_ticker = current_ticker.write().await;
-            if current_ticker.is_none()
-                || current_ticker.as_ref().unwrap().close_time < ticker.close_time
-            {
-                *current_ticker = Some(ticker.clone());
-                drop(current_ticker);
-
-                sender_clone
-                    .send(MarketEvent::Ticker(ticker.clone()))
-                    .map_err(|e| WsError::HandleError {
-                        message: format!("Failed to send ticker event: {}", e),
-                    })?;
-            }
+            let _ = ticker_sender_clone
+                .send(ticker.into())
+                .map_err(|e| WsError::HandleError {
+                    message: format!("Failed to send ticker event: {}", e),
+                })?;
             Ok(())
         })
     });
-
-    let depth_clone = depth.clone();
-    let sender_clone = sender.clone();
-    let market_api_clone = market_api.clone();
-    market_stream.register_depth_update_callback(move |depth_update| {
-        let depth_clone = depth_clone.clone();
-        let sender_clone = sender_clone.clone();
-        let market_api_clone = market_api_clone.clone();
+    // websocket都区分symbol发送到独立的channel
+    // 每一个独立的channel单独运行在一个协程中处理并发送到depth chan
+    let depth_cache_chan_cap = config
+        .get("binance.spot.depth_cache_channel_capacity")
+        .unwrap_or(5000);
+    let depth_updates: Arc<
+        HashMap<
+            String,
+            (
+                Arc<RwLock<Option<DepthState>>>,
+                broadcast::Sender<models::DepthUpdate>,
+                broadcast::Receiver<models::DepthUpdate>,
+            ),
+        >,
+    > = Arc::new(
+        subscribed_symbols
+            .iter()
+            .map(|s| {
+                let (sender, receiver) =
+                    broadcast::channel::<models::DepthUpdate>(depth_cache_chan_cap);
+                (
+                    s.to_string(),
+                    (Arc::new(RwLock::new(None)), sender, receiver),
+                )
+            })
+            .collect::<HashMap<_, _>>(),
+    );
+    market_stream.register_depth_update_callback(move |update| {
+        let depth_updates_clone = depth_updates.clone();
         Box::pin(async move {
-            let symbol_depth_lock = match depth_clone.get(&depth_update.symbol) {
-                Some(entry) => entry.clone(),
-                None => {
-                    return Err(WsError::HandleError {
-                        message: format!(
-                            "Received depth update for unsubscribed symbol: {}",
-                            &depth_update.symbol
-                        ),
-                    });
-                }
-            };
-
-            let mut symbol_depth = symbol_depth_lock.write().await;
-
-            if symbol_depth.is_some() {
-                let _lg = LatencyGuard::new(
-                    "BinanceSpotMarketStream::depth_update_callback::update_depth",
-                );
-                match symbol_depth.as_mut().unwrap().update_depth(&depth_update) {
-                    Ok(Some(depth)) => {
-                        drop(symbol_depth);
-
-                        sender_clone
-                            .send(MarketEvent::Depth(depth.clone()))
-                            .map_err(|e| WsError::HandleError {
-                                message: format!("Failed to send depth event: {}", e),
-                            })?;
-                        return Ok(());
-                    }
-                    Ok(None) => {
-                        return Ok(());
-                    }
-                    Err(_) => {
-                        error!(
-                            "Depth update out of order for symbol {}, re-fetching snapshot",
-                            &depth_update.symbol
-                        );
-                    }
-                }
+            if !depth_updates_clone.contains_key(&update.symbol) {
+                return Err(WsError::HandleError {
+                    message: format!("Failed to find depth update symbol: {}", &update.symbol),
+                });
             }
-            drop(symbol_depth);
-
-            let _lg =
-                LatencyGuard::new("BinanceSpotMarketStream::depth_update_callback::from_depth");
-            let mut state = BinanceSpotDepthState::from_depth(
-                &market_api_clone
-                    .get_depth(GetDepthRequest {
-                        symbol: depth_update.symbol.to_string(),
-                        limit: Some(5000),
-                    })
-                    .await
-                    .map_err(|e| WsError::HandleError {
-                        message: format!(
-                            "Failed to get initial depth for {}: {}",
-                            &depth_update.symbol, e
-                        ),
-                    })?,
-            );
-            state
-                .update_depth(&depth_update)
+            let _ = depth_updates_clone[&update.symbol]
+                .1
+                .send(update.into())
                 .map_err(|e| WsError::HandleError {
-                    message: format!("Failed to update depth after fetch snapshot: {}", e),
-                })?;
-
-            let mut symbol_depth = symbol_depth_lock.write().await;
-            let depth = state.depth.clone();
-            *symbol_depth = Some(state);
-            drop(symbol_depth);
-
-            sender_clone
-                .send(MarketEvent::Depth(depth.clone()))
-                .map_err(|e| WsError::HandleError {
-                    message: format!("Failed to send depth event: {}", e),
+                    message: format!("Failed to send depth update event: {}", e),
                 })?;
             Ok(())
         })
     });
 
     let init_latency_guard = time::LatencyGuard::new("BinanceSpotMarketStream::init");
-    market_stream
-        .init()
-        .await
-        .map_err(|e| PlatformError::MarketProviderError {
-            message: format!("Failed to init market_stream: {}", e),
-        })?;
-    drop(init_latency_guard);
-
-    // 在stream启动后，通过api获取trades/klines初始数据，并覆盖一次
-    let _ = time::LatencyGuard::new("BinanceSpotMarketStream::init_data");
-    for symbol in symbols.iter() {
-        let api_trades = market_api
-            .get_agg_trades(GetAggTradesRequest {
-                symbol: symbol.to_string(),
-                from_id: None,
-                start_time: None,
-                end_time: None,
-                limit: Some(max_trade_cnt as u32),
-            })
+    let shutdown_token =
+        market_stream
+            .init()
             .await
             .map_err(|e| PlatformError::MarketProviderError {
-                message: format!("Failed to get agg trades for {}: {}", symbol, e),
-            })?
-            .iter()
-            .map(|trade| {
-                let trade_id = trade.agg_trade_id;
-                let trade: Arc<Trade> = Arc::new(trade.clone().into());
-                (trade_id, trade)
-            })
-            .collect::<Vec<(_, _)>>();
-        let symbol_trades = trades.get(symbol).unwrap().clone();
-        let mut symbol_trades = symbol_trades.write().await;
-        for (trade_id, trade) in api_trades.into_iter() {
-            symbol_trades.insert(trade_id, trade);
-            if symbol_trades.len() > max_trade_cnt {
-                symbol_trades.pop_first();
-            }
-        }
-        drop(symbol_trades);
+                message: format!("Failed to init market_stream: {}", e),
+            })?;
+    drop(init_latency_guard);
 
-        for interval in kline_intervals.iter() {
-            let api_klines = market_api
-                .get_klines(GetKlinesRequest {
-                    symbol: symbol.to_string(),
-                    interval: interval.clone().into(),
-                    start_time: None,
-                    end_time: None,
-                    limit: Some(max_kline_cnt as u32),
-                })
-                .await
-                .map_err(|e| PlatformError::MarketProviderError {
-                    message: format!(
-                        "Failed to get klines for {} interval {:?}: {}",
-                        symbol, interval, e
-                    ),
-                })?
-                .iter()
-                .map(|kline| {
-                    let kline_open_time = kline.open_time;
-                    let kline: Arc<KlineData> = Arc::new(kline.clone().into());
-                    (kline_open_time, kline)
-                })
-                .collect::<Vec<(_, _)>>();
-            let symbol_klines = klines
-                .get(&(symbol.to_string(), interval.clone()))
-                .unwrap()
-                .clone();
-            let mut symbol_klines = symbol_klines.write().await;
-            for (kline_open_time, kline) in api_klines.into_iter() {
-                symbol_klines.insert(kline_open_time, kline);
-                if symbol_klines.len() > max_kline_cnt {
-                    symbol_klines.pop_first();
+    for (symbol, (state_lock, _, receiver)) in depth_updates.iter() {
+        let market_api = market_api.clone();
+        let depth_sender = depth_sender.clone();
+        let shutdown_token = shutdown_token.clone();
+        let state_lock = state_lock.clone();
+        let mut receiver = receiver.resubscribe();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = shutdown_token_clone.cancelled() => {
+                        break;
+                    }
+                    recv_result = receiver.recv() => {
+                        let update = match recv_result {
+                            Ok(update) => update,
+                            Err(e) => {
+                                error!("Depth update receive error for symbol {}: {}", symbol, e);
+                                continue;
+                            }
+                        };
+                        let mut state_guard = state_lock.write().await;
+                    }
                 }
             }
-        }
+        });
     }
 
     Ok(market_stream)

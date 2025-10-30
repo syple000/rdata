@@ -58,6 +58,7 @@ pub struct Trade {
     pub quantity: Decimal,
     pub timestamp: u64,
     pub is_buyer_maker: bool,
+    pub seq_id: u64, // 验证交易所推送是否缺失，如果没有该值（默认0）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

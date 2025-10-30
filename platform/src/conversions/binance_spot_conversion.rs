@@ -74,6 +74,7 @@ impl From<ex_models::AggTrade> for Trade {
             quantity: value.quantity,
             timestamp: value.timestamp,
             is_buyer_maker: value.is_buyer_maker,
+            seq_id: value.agg_trade_id,
         }
     }
 }

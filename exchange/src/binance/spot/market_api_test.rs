@@ -44,22 +44,38 @@ async fn test_market_get_klines() {
 async fn test_market_get_agg_trades() {
     let market = setup_test_market_api();
 
-    // 测试获取最近的归集交易
-    let resp = market
-        .get_agg_trades(GetAggTradesRequest {
-            symbol: "BTCUSDT".to_string(),
-            from_id: Some(3323002),
-            start_time: None, // Some(time::get_current_milli_timestamp() - 20 * 60 * 1000),
-            end_time: None,   // Some(time::get_current_milli_timestamp()),
-            limit: Some(10),
-        })
-        .await;
+    let mut latest_trade_id = None;
+    for batch_num in 0..100 {
+        let resp = market
+            .get_agg_trades(GetAggTradesRequest {
+                symbol: "BTCUSDT".to_string(),
+                from_id: latest_trade_id,
+                start_time: None, // Some(time::get_current_milli_timestamp() - 20 * 60 * 1000),
+                end_time: None,   // Some(time::get_current_milli_timestamp()),
+                limit: Some(1000),
+            })
+            .await;
 
-    assert!(resp.is_ok());
-    let agg_trades = resp.unwrap();
-    assert!(!agg_trades.is_empty());
-    println!("Got {} agg trades", agg_trades.len());
-    json::dump(&agg_trades, "agg_trades.json").unwrap();
+        assert!(resp.is_ok());
+        let agg_trades = resp.unwrap();
+        assert!(agg_trades.len() == 1000);
+        if let Some(latest_trade_id) = latest_trade_id {
+            assert!(agg_trades[0].agg_trade_id == latest_trade_id);
+        }
+        latest_trade_id = Some(agg_trades[0].agg_trade_id - 1000);
+
+        // 遍历agg trades，验证aggtradeid是否连续
+        for i in 1..agg_trades.len() {
+            let prev_id: u64 = agg_trades[i - 1].agg_trade_id;
+            let curr_id: u64 = agg_trades[i].agg_trade_id;
+            assert_eq!(curr_id, prev_id + 1);
+        }
+        json::dump(
+            &agg_trades,
+            &format!("agg_trades_{}.json", batch_num.to_string()),
+        )
+        .unwrap();
+    }
 }
 
 #[tokio::test]
