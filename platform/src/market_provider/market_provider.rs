@@ -16,8 +16,10 @@ pub trait MarketProvider: Send + Sync {
     async fn get_klines(&self, req: GetKlinesRequest) -> Result<Vec<KlineData>, PlatformError>;
     async fn get_trades(&self, req: GetTradesRequest) -> Result<Vec<Trade>, PlatformError>;
     async fn get_depth(&self, req: GetDepthRequest) -> Result<DepthData, PlatformError>;
-    async fn get_ticker_24hr(&self, req: GetTicker24hrRequest)
-        -> Result<Ticker24hr, PlatformError>;
+    async fn get_ticker_24hr(
+        &self,
+        req: GetTicker24hrRequest,
+    ) -> Result<Vec<Ticker24hr>, PlatformError>;
     async fn get_exchange_info(&self) -> Result<ExchangeInfo, PlatformError>;
 
     async fn subscribe_kline(&self) -> broadcast::Receiver<Arc<KlineData>>;

@@ -3,6 +3,3 @@ pub use market_provider::*;
 
 pub mod binance_spot_market_provider;
 pub use binance_spot_market_provider::*;
-
-#[cfg(test)]
-mod binance_spot_market_provider_test;
