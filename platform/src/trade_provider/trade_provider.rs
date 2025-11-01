@@ -22,5 +22,5 @@ pub trait TradeProvider: Send + Sync {
 
     fn subscribe_order(&self) -> broadcast::Receiver<Order>;
     fn subscribe_user_trade(&self) -> broadcast::Receiver<UserTrade>;
-    fn subscribe_account(&self) -> broadcast::Receiver<AccountUpdate>;
+    fn subscribe_account_update(&self) -> broadcast::Receiver<AccountUpdate>;
 }

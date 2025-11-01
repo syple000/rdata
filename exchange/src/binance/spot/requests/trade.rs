@@ -35,7 +35,7 @@ pub struct GetOpenOrdersRequest {
 
 pub struct GetAllOrdersRequest {
     pub symbol: String,
-    pub from_order_id: Option<u64>, // 仅返回该id以后的订单
+    pub from_id: Option<u64>, // 仅返回该id以后的订单
     pub start_time: Option<u64>,
     pub end_time: Option<u64>,
     pub limit: Option<u32>, // default 500; max 1000
@@ -43,7 +43,7 @@ pub struct GetAllOrdersRequest {
 
 pub struct GetTradesRequest {
     pub symbol: String,
-    pub from_order_id: Option<u64>,
+    pub order_id: Option<u64>,
     pub from_id: Option<u64>, // 仅返回该id以后的订单
     pub start_time: Option<u64>,
     pub end_time: Option<u64>,

@@ -34,7 +34,7 @@ pub struct GetOpenOrdersRequest {
 
 pub struct GetAllOrdersRequest {
     pub symbol: String,
-    pub from_order_id: Option<String>,
+    pub from_id: Option<String>,
     pub start_time: Option<u64>,
     pub end_time: Option<u64>,
     pub limit: Option<u32>,
@@ -42,7 +42,7 @@ pub struct GetAllOrdersRequest {
 
 pub struct GetUserTradesRequest {
     pub symbol: String,
-    pub from_order_id: Option<String>,
+    pub order_id: Option<String>,
     pub from_id: Option<String>,
     pub start_time: Option<u64>,
     pub end_time: Option<u64>,

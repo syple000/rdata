@@ -461,7 +461,7 @@ impl From<GetAllOrdersRequest> for ex_requests::GetAllOrdersRequest {
     fn from(value: GetAllOrdersRequest) -> Self {
         ex_requests::GetAllOrdersRequest {
             symbol: value.symbol,
-            from_order_id: value.from_order_id.and_then(|id| id.parse().ok()),
+            from_id: value.from_id.and_then(|id| id.parse().ok()),
             start_time: value.start_time,
             end_time: value.end_time,
             limit: value.limit,
@@ -473,7 +473,7 @@ impl From<GetUserTradesRequest> for ex_requests::GetTradesRequest {
     fn from(value: GetUserTradesRequest) -> Self {
         ex_requests::GetTradesRequest {
             symbol: value.symbol,
-            from_order_id: value.from_order_id.and_then(|id| id.parse().ok()),
+            order_id: value.order_id.and_then(|id| id.parse().ok()),
             from_id: value.from_id.and_then(|id| id.parse().ok()),
             start_time: value.start_time,
             end_time: value.end_time,

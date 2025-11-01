@@ -2,25 +2,22 @@ use crate::{
     config::Config,
     errors::{PlatformError, Result},
     models::{
-        Account, AccountUpdate, Balance, CancelOrderRequest, GetAllOrdersRequest,
-        GetOpenOrdersRequest, GetOrderRequest, GetUserTradesRequest, Order, PlaceOrderRequest,
-        UserTrade,
+        Account, AccountUpdate, CancelOrderRequest, GetAllOrdersRequest, GetOpenOrdersRequest,
+        GetOrderRequest, GetUserTradesRequest, Order, PlaceOrderRequest, UserTrade,
     },
     trade_provider::TradeProvider,
 };
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use exchange::binance::spot::{
-    models::{self},
     requests::{self},
     trade_api::TradeApi,
     trade_stream::TradeStream,
 };
 use log::error;
 use rate_limiter::RateLimiter;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use time::LatencyGuard;
-use tokio::sync::{broadcast, RwLock};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use ws::WsError;
 
@@ -36,8 +33,8 @@ pub struct BinanceSpotTradeProvider {
     order_receiver: broadcast::Receiver<Order>,
     user_trade_sender: broadcast::Sender<UserTrade>,
     user_trade_receiver: broadcast::Receiver<UserTrade>,
-    account_sender: broadcast::Sender<AccountUpdate>,
-    account_receiver: broadcast::Receiver<AccountUpdate>,
+    account_update_sender: broadcast::Sender<AccountUpdate>,
+    account_update_receiver: broadcast::Receiver<AccountUpdate>,
 
     shutdown_token: CancellationToken,
 }
@@ -58,7 +55,7 @@ impl BinanceSpotTradeProvider {
         });
 
         let stream_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance.spot.stream_rate_limits").ok();
+            config.get("binance.spot.stream_api_rate_limits").ok();
         let stream_rate_limiters = stream_rate_limits.map(|limits| {
             Arc::new(
                 limits
@@ -94,8 +91,8 @@ impl BinanceSpotTradeProvider {
             order_receiver,
             user_trade_sender,
             user_trade_receiver,
-            account_sender,
-            account_receiver,
+            account_update_sender: account_sender,
+            account_update_receiver: account_receiver,
             shutdown_token: CancellationToken::new(),
         })
     }
@@ -149,18 +146,17 @@ fn create_trade_api(
 }
 
 async fn create_trade_stream(
-    trade_api: Arc<TradeApi>,
     config: Arc<Config>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     order_sender: broadcast::Sender<Order>,
     user_trade_sender: broadcast::Sender<UserTrade>,
-    account_sender: broadcast::Sender<AccountUpdate>,
+    account_update_sender: broadcast::Sender<AccountUpdate>,
 ) -> Result<TradeStream> {
     let stream_api_base_url: String =
         config
             .get("binance.spot.stream_api_base_url")
             .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get stream_base_url: {}", e),
+                message: format!("Failed to get stream_api_base_url: {}", e),
             })?;
     let proxy_url: Option<String> = config.get("proxy.url").ok();
     let api_key: String =
@@ -207,7 +203,7 @@ async fn create_trade_stream(
     });
 
     trade_stream.register_outbound_account_position_callback(move |update| {
-        let account_sender = account_sender.clone();
+        let account_sender = account_update_sender.clone();
         Box::pin(async move {
             account_sender
                 .send(update.into())
@@ -228,251 +224,255 @@ async fn create_trade_stream(
     Ok(trade_stream)
 }
 
-// #[async_trait]
-// impl TradeProvider for BinanceSpotTradeProvider {
-//     async fn init(&mut self) -> Result<()> {
-//         let trade_api = Arc::new(create_trade_api(
-//             self.config.clone(),
-//             self.api_rate_limiters.clone(),
-//         )?);
-//
-//         let trade_stream = create_trade_stream(
-//             self.config.clone(),
-//             self.stream_rate_limiters.clone(),
-//             self.order_sender.clone(),
-//             self.user_trade_sender.clone(),
-//             self.account_sender.clone(),
-//             self.account_state.clone(),
-//         )
-//         .await?;
-//
-//         self.trade_api = Some(trade_api);
-//         self.trade_stream = Some(Arc::new(ArcSwap::new(Arc::new(trade_stream))));
-//
-//         // Stream disconnect auto-reconnect logic
-//         let shutdown_token = self.shutdown_token.clone();
-//         let trade_stream = self.trade_stream.as_ref().unwrap().clone();
-//         let config = self.config.clone();
-//         let stream_rate_limiters = self.stream_rate_limiters.clone();
-//         let order_sender = self.order_sender.clone();
-//         let user_trade_sender = self.user_trade_sender.clone();
-//         let account_sender = self.account_sender.clone();
-//         let account_state = self.account_state.clone();
-//         tokio::spawn(async move {
-//             let retry_interval = config
-//                 .get::<u64>("binance.spot.stream_reconnect_interval_milli_secs")
-//                 .unwrap_or(3000);
-//             let mut latest_retry_ts = 0u64;
-//             loop {
-//                 let stream_shutdown_token = trade_stream
-//                     .load_full()
-//                     .get_ws_shutdown_token()
-//                     .await
-//                     .unwrap();
-//                 tokio::select! {
-//                     _ = shutdown_token.cancelled() => {
-//                         break;
-//                     },
-//                     _ = stream_shutdown_token.cancelled() => {
-//                         let now = time::get_current_milli_timestamp();
-//                         if now - latest_retry_ts < retry_interval {
-//                             tokio::time::sleep(Duration::from_millis(retry_interval - (now - latest_retry_ts))).await;
-//                         }
-//                         latest_retry_ts = now;
-//                         let new_stream = create_trade_stream(
-//                             config.clone(),
-//                             stream_rate_limiters.clone(),
-//                             order_sender.clone(),
-//                             user_trade_sender.clone(),
-//                             account_sender.clone(),
-//                             account_state.clone(),
-//                         ).await;
-//                         match new_stream {
-//                             Ok(stream) => {
-//                                 trade_stream.store(Arc::new(stream));
-//                             },
-//                             Err(e) => {
-//                                 error!("Failed to recreate trade stream: {}", e);
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         });
-//
-//         Ok(())
-//     }
-//
-//     async fn place_order(&self, req: PlaceOrderRequest) -> Result<Order> {
-//         // Try stream first, fallback to API if unavailable
-//         if let Some(stream_arc) = &self.trade_stream {
-//             let stream = stream_arc.load_full();
-//             match stream.place_order(req.clone().into()).await {
-//                 Ok(response) => {
-//                     // response is already an Order
-//                     return Ok(response.into());
-//                 }
-//                 Err(e) => {
-//                     error!(
-//                         "Failed to place order via stream, falling back to API: {}",
-//                         e
-//                     );
-//                 }
-//             }
-//         }
-//
-//         // Fallback to API
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         let response = api.place_order(req.clone().into()).await.map_err(|e| {
-//             PlatformError::TradeProviderError {
-//                 message: format!("Failed to place order via API: {}", e),
-//             }
-//         })?;
-//
-//         Ok(response.into())
-//     }
-//
-//     async fn cancel_order(&self, req: CancelOrderRequest) -> Result<()> {
-//         // Try stream first, fallback to API if unavailable
-//         if let Some(stream_arc) = &self.trade_stream {
-//             let stream = stream_arc.load_full();
-//             match stream.cancel_order(req.clone().into()).await {
-//                 Ok(_) => {
-//                     return Ok(());
-//                 }
-//                 Err(e) => {
-//                     error!(
-//                         "Failed to cancel order via stream, falling back to API: {}",
-//                         e
-//                     );
-//                 }
-//             }
-//         }
-//
-//         // Fallback to API
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         api.cancel_order(req.into())
-//             .await
-//             .map_err(|e| PlatformError::TradeProviderError {
-//                 message: format!("Failed to cancel order via API: {}", e),
-//             })?;
-//
-//         Ok(())
-//     }
-//
-//     async fn get_order(&self, req: GetOrderRequest) -> Result<Order> {
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         let order =
-//             api.get_order(req.into())
-//                 .await
-//                 .map_err(|e| PlatformError::TradeProviderError {
-//                     message: format!("Failed to get order: {}", e),
-//                 })?;
-//
-//         Ok(order.into())
-//     }
-//
-//     async fn get_open_orders(&self, req: GetOpenOrdersRequest) -> Result<Vec<Order>> {
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         let orders = api.get_open_orders(req.into()).await.map_err(|e| {
-//             PlatformError::TradeProviderError {
-//                 message: format!("Failed to get open orders: {}", e),
-//             }
-//         })?;
-//
-//         Ok(orders.into_iter().map(|o| o.into()).collect())
-//     }
-//
-//     async fn get_all_orders(&self, req: GetAllOrdersRequest) -> Result<Vec<Order>> {
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         let orders = api.get_all_orders(req.into()).await.map_err(|e| {
-//             PlatformError::TradeProviderError {
-//                 message: format!("Failed to get all orders: {}", e),
-//             }
-//         })?;
-//
-//         Ok(orders.into_iter().map(|o| o.into()).collect())
-//     }
-//
-//     async fn get_user_trades(&self, req: GetUserTradesRequest) -> Result<Vec<UserTrade>> {
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         let trades =
-//             api.get_trades(req.into())
-//                 .await
-//                 .map_err(|e| PlatformError::TradeProviderError {
-//                     message: format!("Failed to get user trades: {}", e),
-//                 })?;
-//
-//         Ok(trades.into_iter().map(|t| t.into()).collect())
-//     }
-//
-//     async fn get_account(&self) -> Result<Account> {
-//         let api = self
-//             .trade_api
-//             .as_ref()
-//             .ok_or(PlatformError::TradeProviderError {
-//                 message: "Trade API not initialized".to_string(),
-//             })?;
-//
-//         let account = api
-//             .get_account(requests::GetAccountRequest {})
-//             .await
-//             .map_err(|e| PlatformError::TradeProviderError {
-//                 message: format!("Failed to get account: {}", e),
-//             })?;
-//
-//         // Convert to platform Account (only balances and timestamp)
-//         Ok(Account {
-//             balances: account.balances.into_iter().map(|b| b.into()).collect(),
-//             timestamp: account.update_time,
-//         })
-//     }
-//
-//     fn subscribe_order(&self) -> broadcast::Receiver<Order> {
-//         self.order_receiver.resubscribe()
-//     }
-//
-//     fn subscribe_user_trade(&self) -> broadcast::Receiver<UserTrade> {
-//         self.user_trade_receiver.resubscribe()
-//     }
-//
-//     fn subscribe_account(&self) -> broadcast::Receiver<Account> {
-//         self.account_receiver.resubscribe()
-//     }
-// }
+#[async_trait]
+impl TradeProvider for BinanceSpotTradeProvider {
+    async fn init(&mut self) -> Result<()> {
+        let trade_api = Arc::new(create_trade_api(
+            self.config.clone(),
+            self.api_rate_limiters.clone(),
+        )?);
+
+        let trade_stream = create_trade_stream(
+            self.config.clone(),
+            self.stream_rate_limiters.clone(),
+            self.order_sender.clone(),
+            self.user_trade_sender.clone(),
+            self.account_update_sender.clone(),
+        )
+        .await?;
+
+        self.trade_api = Some(trade_api);
+        self.trade_stream = Some(Arc::new(ArcSwap::from_pointee(trade_stream)));
+
+        let shutdown_token = self.shutdown_token.clone();
+        let trade_stream = self.trade_stream.as_ref().unwrap().clone();
+        let config = self.config.clone();
+        let stream_rate_limiters = self.stream_rate_limiters.clone();
+        let order_sender = self.order_sender.clone();
+        let user_trade_sender = self.user_trade_sender.clone();
+        let account_update_sender = self.account_update_sender.clone();
+        tokio::spawn(async move {
+            let retry_interval = config
+                .get::<u64>("binance.spot.stream_reconnect_interval_milli_secs")
+                .unwrap_or(3000);
+            let mut latest_retry_ts = 0u64;
+            loop {
+                let stream_shutdown_token = trade_stream
+                    .load_full()
+                    .get_ws_shutdown_token()
+                    .await
+                    .unwrap();
+                tokio::select! {
+                    _ = shutdown_token.cancelled() => {
+                        break;
+                    },
+                    _ = stream_shutdown_token.cancelled() => {
+                        let now = time::get_current_milli_timestamp();
+                        if now - latest_retry_ts < retry_interval {
+                            tokio::time::sleep(Duration::from_millis(retry_interval - (now - latest_retry_ts))).await;
+                        }
+                        latest_retry_ts = now;
+                        let new_stream = create_trade_stream(
+                            config.clone(),
+                            stream_rate_limiters.clone(),
+                            order_sender.clone(),
+                            user_trade_sender.clone(),
+                            account_update_sender.clone(),
+                        ).await;
+                        match new_stream {
+                            Ok(stream) => {
+                                trade_stream.store(Arc::new(stream));
+                            },
+                            Err(e) => {
+                                error!("Failed to recreate trade stream: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn place_order(&self, req: PlaceOrderRequest) -> Result<Order> {
+        // 优先从stream下单，如果stream的状态不可用，回退到API下单
+        let (stream, ok) = match &self.trade_stream {
+            None => (None, false),
+            Some(stream_arc) => {
+                let stream = stream_arc.load_full();
+                if let Some(token) = stream.get_ws_shutdown_token().await {
+                    if token.is_cancelled() {
+                        (None, false)
+                    } else {
+                        (Some(stream), true)
+                    }
+                } else {
+                    (None, false)
+                }
+            }
+        };
+
+        if ok {
+            match stream.unwrap().place_order(req.into()).await {
+                Ok(response) => Ok(response.into()),
+                Err(e) => Err(PlatformError::TradeProviderError {
+                    message: format!("Failed to place order via stream: {}", e),
+                }),
+            }
+        } else {
+            match &self.trade_api {
+                None => Err(PlatformError::TradeProviderError {
+                    message: "Trade API not initialized".to_string(),
+                }),
+                Some(api) => api
+                    .place_order(req.into())
+                    .await
+                    .map(|o| o.into())
+                    .map_err(|e| PlatformError::TradeProviderError {
+                        message: format!("Failed to place order via API: {}", e),
+                    }),
+            }
+        }
+    }
+
+    async fn cancel_order(&self, req: CancelOrderRequest) -> Result<()> {
+        let (stream, ok) = match &self.trade_stream {
+            None => (None, false),
+            Some(stream_arc) => {
+                let stream = stream_arc.load_full();
+                if let Some(token) = stream.get_ws_shutdown_token().await {
+                    if token.is_cancelled() {
+                        (None, false)
+                    } else {
+                        (Some(stream), true)
+                    }
+                } else {
+                    (None, false)
+                }
+            }
+        };
+
+        if ok {
+            match stream.unwrap().cancel_order(req.into()).await {
+                Ok(response) => Ok(response.into()),
+                Err(e) => Err(PlatformError::TradeProviderError {
+                    message: format!("Failed to place order via stream: {}", e),
+                }),
+            }
+        } else {
+            match &self.trade_api {
+                None => Err(PlatformError::TradeProviderError {
+                    message: "Trade API not initialized".to_string(),
+                }),
+                Some(api) => api
+                    .cancel_order(req.into())
+                    .await
+                    .map(|o| o.into())
+                    .map_err(|e| PlatformError::TradeProviderError {
+                        message: format!("Failed to place order via API: {}", e),
+                    }),
+            }
+        }
+    }
+
+    async fn get_order(&self, req: GetOrderRequest) -> Result<Order> {
+        let api = self
+            .trade_api
+            .as_ref()
+            .ok_or(PlatformError::TradeProviderError {
+                message: "Trade API not initialized".to_string(),
+            })?;
+
+        let order =
+            api.get_order(req.into())
+                .await
+                .map_err(|e| PlatformError::TradeProviderError {
+                    message: format!("Failed to get order: {}", e),
+                })?;
+
+        Ok(order.into())
+    }
+
+    async fn get_open_orders(&self, req: GetOpenOrdersRequest) -> Result<Vec<Order>> {
+        let api = self
+            .trade_api
+            .as_ref()
+            .ok_or(PlatformError::TradeProviderError {
+                message: "Trade API not initialized".to_string(),
+            })?;
+
+        let orders = api.get_open_orders(req.into()).await.map_err(|e| {
+            PlatformError::TradeProviderError {
+                message: format!("Failed to get open orders: {}", e),
+            }
+        })?;
+
+        Ok(orders.into_iter().map(|o| o.into()).collect())
+    }
+
+    async fn get_all_orders(&self, req: GetAllOrdersRequest) -> Result<Vec<Order>> {
+        let api = self
+            .trade_api
+            .as_ref()
+            .ok_or(PlatformError::TradeProviderError {
+                message: "Trade API not initialized".to_string(),
+            })?;
+
+        let orders = api.get_all_orders(req.into()).await.map_err(|e| {
+            PlatformError::TradeProviderError {
+                message: format!("Failed to get all orders: {}", e),
+            }
+        })?;
+
+        Ok(orders.into_iter().map(|o| o.into()).collect())
+    }
+
+    async fn get_user_trades(&self, req: GetUserTradesRequest) -> Result<Vec<UserTrade>> {
+        let api = self
+            .trade_api
+            .as_ref()
+            .ok_or(PlatformError::TradeProviderError {
+                message: "Trade API not initialized".to_string(),
+            })?;
+
+        let trades =
+            api.get_trades(req.into())
+                .await
+                .map_err(|e| PlatformError::TradeProviderError {
+                    message: format!("Failed to get user trades: {}", e),
+                })?;
+
+        Ok(trades.into_iter().map(|t| t.into()).collect())
+    }
+
+    async fn get_account(&self) -> Result<Account> {
+        let api = self
+            .trade_api
+            .as_ref()
+            .ok_or(PlatformError::TradeProviderError {
+                message: "Trade API not initialized".to_string(),
+            })?;
+
+        let account = api
+            .get_account(requests::GetAccountRequest {})
+            .await
+            .map_err(|e| PlatformError::TradeProviderError {
+                message: format!("Failed to get account: {}", e),
+            })?;
+
+        Ok(account.into())
+    }
+
+    fn subscribe_order(&self) -> broadcast::Receiver<Order> {
+        self.order_receiver.resubscribe()
+    }
+
+    fn subscribe_user_trade(&self) -> broadcast::Receiver<UserTrade> {
+        self.user_trade_receiver.resubscribe()
+    }
+
+    fn subscribe_account_update(&self) -> broadcast::Receiver<AccountUpdate> {
+        self.account_update_receiver.resubscribe()
+    }
+}
