@@ -6,7 +6,6 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use std::sync::Arc;
 use tokio::sync::broadcast;
 
 #[async_trait]
@@ -22,8 +21,8 @@ pub trait MarketProvider: Send + Sync {
     ) -> Result<Vec<Ticker24hr>, PlatformError>;
     async fn get_exchange_info(&self) -> Result<ExchangeInfo, PlatformError>;
 
-    async fn subscribe_kline(&self) -> broadcast::Receiver<Arc<KlineData>>;
-    async fn subscribe_trade(&self) -> broadcast::Receiver<Arc<Trade>>;
-    async fn subscribe_depth(&self) -> broadcast::Receiver<Arc<DepthData>>;
-    async fn subscribe_ticker(&self) -> broadcast::Receiver<Arc<Ticker24hr>>;
+    fn subscribe_kline(&self) -> broadcast::Receiver<KlineData>;
+    fn subscribe_trade(&self) -> broadcast::Receiver<Trade>;
+    fn subscribe_depth(&self) -> broadcast::Receiver<DepthData>;
+    fn subscribe_ticker(&self) -> broadcast::Receiver<Ticker24hr>;
 }

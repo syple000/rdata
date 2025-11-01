@@ -128,6 +128,7 @@ impl DepthState {
     }
 
     pub fn depth(&self) -> DepthData {
+        let _lg = LatencyGuard::new("BinanceSpotDepthState::depth");
         DepthData {
             symbol: self.symbol.clone(),
             bids: self.bids.values().rev().cloned().collect(),
@@ -232,10 +233,15 @@ fn create_market_api(
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_base_url: {}", e),
             })?;
-
     let proxy_url: Option<String> = config.get("proxy.url").ok();
+    let timeout_milli_secs: u64 =
+        config
+            .get("binance.spot.api_timeout_milli_secs")
+            .map_err(|e| PlatformError::ConfigError {
+                message: format!("Failed to get api_timeout_milli_secs: {}", e),
+            })?;
 
-    let mut market_api = MarketApi::new(base_url, proxy_url, rate_limiters);
+    let mut market_api = MarketApi::new(base_url, proxy_url, rate_limiters, timeout_milli_secs);
     market_api
         .init()
         .map_err(|e| PlatformError::MarketProviderError {
@@ -379,6 +385,7 @@ async fn create_market_stream(
                         break;
                     }
                     recv_result = receiver.recv() => {
+                        let _lg = LatencyGuard::new("BinanceSpotMarketProvider::depth_update_handler");
                         let update = match recv_result {
                             Ok(update) => update,
                             Err(e) => {
@@ -386,12 +393,13 @@ async fn create_market_stream(
                                 continue;
                             }
                         };
+                        let _lg_1 = LatencyGuard::new("BinanceSpotMarketProvider::depth_update_handler::process_update");
                         let mut state_guard = state_lock.write().await;
                         if state_guard.is_some() {
                             if let Some(updated) = state_guard.as_mut().unwrap().update_depth(&update).ok() {
                                 if updated {
                                     let depth_data = state_guard.as_ref().unwrap().depth();
-                                    depth_sender.send(depth_data).map_err(|e| {
+                                    let _ = depth_sender.send(depth_data).map_err(|e| {
                                         error!("send depth data error for symbol {}: {}", symbol, e);
                                     });
                                 }
@@ -399,7 +407,9 @@ async fn create_market_stream(
                             }
                         }
                         drop(state_guard);
+                        drop(_lg_1);
 
+                        let _lg_2 = LatencyGuard::new("BinanceSpotMarketProvider::depth_update_handler::fetch_initial_and_update_depth");
                         let depth_data = market_api
                             .get_depth(requests::GetDepthRequest {
                                 symbol: symbol.clone(),
@@ -428,8 +438,9 @@ async fn create_market_stream(
                         let mut state_guard = state_lock.write().await;
                         *state_guard = Some(depth_state);
                         drop(state_guard);
+                        drop(_lg_2);
 
-                        depth_sender.send(depth).map_err(|e| {
+                        let _ = depth_sender.send(depth).map_err(|e| {
                             error!("send depth data error for symbol {}: {}", symbol, e);
                         });
                     }
@@ -607,19 +618,19 @@ impl MarketProvider for BinanceSpotMarketProvider {
         Ok(info.into())
     }
 
-    async fn subscribe_kline(&self) -> broadcast::Receiver<KlineData> {
-        self.kline_sender.subscribe()
+    fn subscribe_kline(&self) -> broadcast::Receiver<KlineData> {
+        self.kline_receiver.resubscribe()
     }
 
-    async fn subscribe_trade(&self) -> broadcast::Receiver<Trade> {
-        self.trade_sender.subscribe()
+    fn subscribe_trade(&self) -> broadcast::Receiver<Trade> {
+        self.trade_receiver.resubscribe()
     }
 
-    async fn subscribe_depth(&self) -> broadcast::Receiver<DepthData> {
-        self.depth_sender.subscribe()
+    fn subscribe_depth(&self) -> broadcast::Receiver<DepthData> {
+        self.depth_receiver.resubscribe()
     }
 
-    async fn subscribe_ticker(&self) -> broadcast::Receiver<Ticker24hr> {
-        self.ticker_sender.subscribe()
+    fn subscribe_ticker(&self) -> broadcast::Receiver<Ticker24hr> {
+        self.ticker_receiver.resubscribe()
     }
 }

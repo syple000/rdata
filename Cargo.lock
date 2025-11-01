@@ -1465,6 +1465,7 @@ dependencies = [
  "dashmap",
  "env_logger",
  "exchange",
+ "json",
  "log",
  "rate_limiter",
  "rust_decimal",

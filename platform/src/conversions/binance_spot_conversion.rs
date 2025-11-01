@@ -550,7 +550,6 @@ mod tests {
     #[test]
     fn test_request_conversion() {
         let platform_req = GetKlinesRequest {
-            fetch_strategy: FetchStrategy::ApiOnly,
             symbol: "BTCUSDT".to_string(),
             interval: KlineInterval::OneHour,
             start_time: Some(1000),

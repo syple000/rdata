@@ -1,7 +1,6 @@
-use crate::models::{FetchStrategy, KlineInterval};
+use crate::models::KlineInterval;
 
 pub struct GetKlinesRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
     pub interval: KlineInterval,
     pub start_time: Option<u64>,
@@ -10,7 +9,6 @@ pub struct GetKlinesRequest {
 }
 
 pub struct GetTradesRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
     pub from_id: Option<String>,
     pub start_time: Option<u64>,
@@ -19,19 +17,16 @@ pub struct GetTradesRequest {
 }
 
 pub struct GetDepthRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
     pub limit: Option<u32>,
 }
 
 pub struct GetExchangeInfoRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: Option<String>,
     pub symbols: Option<Vec<String>>,
 }
 
 pub struct GetTicker24hrRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: Option<String>,
     pub symbols: Option<Vec<String>>,
 }

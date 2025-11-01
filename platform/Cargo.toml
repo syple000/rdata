@@ -8,6 +8,7 @@ exchange = { path = "../exchange" }
 rate_limiter = { path = "../rate_limiter" }
 ws = { path = "../ws" }
 time = { path = "../time" }
+json = { path = "../json" }
 
 tokio = {version = "1.47.1", features = ["full"]}
 tokio-util = "0.7.16"

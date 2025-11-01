@@ -6,12 +6,14 @@ use super::responses::market::*;
 use log::error;
 use rate_limiter::RateLimiter;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub struct MarketApi {
     client: Option<reqwest::Client>,
     base_url: String,
     proxy_url: Option<String>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
+    timeout_milli_secs: u64,
 }
 
 impl MarketApi {
@@ -19,12 +21,14 @@ impl MarketApi {
         base_url: String,
         proxy_url: Option<String>,
         rate_limiters: Option<Arc<Vec<RateLimiter>>>,
+        timeout_milli_secs: u64,
     ) -> Self {
         MarketApi {
             client: None,
             base_url,
             proxy_url,
             rate_limiters: rate_limiters,
+            timeout_milli_secs,
         }
     }
 
@@ -248,6 +252,7 @@ impl MarketApi {
                 client
                     .get(format!("{}{}", self.base_url, endpoint))
                     .query(&params)
+                    .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
             }
@@ -255,6 +260,7 @@ impl MarketApi {
                 client
                     .post(format!("{}{}", self.base_url, endpoint))
                     .form(&params)
+                    .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
             }
@@ -262,6 +268,7 @@ impl MarketApi {
                 client
                     .delete(format!("{}{}", self.base_url, endpoint))
                     .query(&params)
+                    .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
             }

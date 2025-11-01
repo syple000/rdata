@@ -18,6 +18,7 @@ fn setup_test_market_api() -> MarketApi {
         TEST_SPOT_BASE_URL.to_string(),
         Some("socks5://127.0.0.1:10808".to_string()),
         Some(Arc::new(vec![rate_limiter])),
+        10000,
     );
     api.init().unwrap();
     api
