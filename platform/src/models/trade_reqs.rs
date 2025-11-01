@@ -1,6 +1,7 @@
-use crate::models::{FetchStrategy, OrderSide, OrderType, TimeInForce};
+use crate::models::{OrderSide, OrderType, TimeInForce};
 use rust_decimal::Decimal;
 
+#[derive(Clone)]
 pub struct PlaceOrderRequest {
     pub symbol: String,
     pub side: OrderSide,
@@ -13,6 +14,7 @@ pub struct PlaceOrderRequest {
     pub iceberg_qty: Option<Decimal>, // LIMIT/LIMIT_MAKER
 }
 
+#[derive(Clone)]
 pub struct CancelOrderRequest {
     pub symbol: String,
     pub order_id: Option<String>,
@@ -21,19 +23,16 @@ pub struct CancelOrderRequest {
 }
 
 pub struct GetOrderRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
     pub order_id: Option<String>,
     pub orig_client_order_id: Option<String>,
 }
 
 pub struct GetOpenOrdersRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: Option<String>,
 }
 
 pub struct GetAllOrdersRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
     pub from_order_id: Option<String>,
     pub start_time: Option<u64>,
@@ -42,7 +41,6 @@ pub struct GetAllOrdersRequest {
 }
 
 pub struct GetUserTradesRequest {
-    pub fetch_strategy: FetchStrategy,
     pub symbol: String,
     pub from_order_id: Option<String>,
     pub from_id: Option<String>,

@@ -23,6 +23,7 @@ fn setup_test_trade_api() -> TradeApi {
         Some(Arc::new(vec![rate_limiter])),
         TEST_SPOT_API_KEY.to_string(),
         TEST_SPOT_SECRET_KEY.to_string(),
+        30000,
     );
     api.init().unwrap();
     api

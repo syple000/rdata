@@ -279,6 +279,24 @@ impl From<ex_models::Balance> for Balance {
     }
 }
 
+impl From<ex_models::OutboundAccountPosition> for AccountUpdate {
+    fn from(value: ex_models::OutboundAccountPosition) -> Self {
+        AccountUpdate {
+            balances: value.balances.into_iter().map(|b| b.into()).collect(),
+            timestamp: value.update_time,
+        }
+    }
+}
+
+impl From<ex_models::Account> for Account {
+    fn from(value: ex_models::Account) -> Self {
+        Account {
+            balances: value.balances.into_iter().map(|b| b.into()).collect(),
+            timestamp: value.update_time,
+        }
+    }
+}
+
 // ============================================================================
 // Request Conversions: platform -> exchange
 // ============================================================================

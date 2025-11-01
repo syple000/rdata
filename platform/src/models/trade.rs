@@ -41,3 +41,15 @@ pub struct Balance {
     pub free: Decimal,
     pub locked: Decimal,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Account {
+    pub balances: Vec<Balance>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountUpdate {
+    pub balances: Vec<Balance>,
+    pub timestamp: u64,
+}

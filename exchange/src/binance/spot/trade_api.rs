@@ -13,7 +13,7 @@ use crate::binance::{
 };
 use log::{error, info};
 use rate_limiter::RateLimiter;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 pub struct TradeApi {
     client: Option<reqwest::Client>,
@@ -22,6 +22,7 @@ pub struct TradeApi {
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     api_key: String,
     secret_key: String,
+    timeout_milli_secs: u64,
 }
 
 impl TradeApi {
@@ -31,6 +32,7 @@ impl TradeApi {
         rate_limiters: Option<Arc<Vec<RateLimiter>>>,
         api_key: String,
         secret_key: String,
+        timeout_milli_secs: u64,
     ) -> Self {
         TradeApi {
             client: None,
@@ -39,6 +41,7 @@ impl TradeApi {
             rate_limiters: rate_limiters,
             api_key,
             secret_key,
+            timeout_milli_secs,
         }
     }
 
@@ -522,6 +525,7 @@ impl TradeApi {
                     .get(format!("{}{}", self.base_url, endpoint).as_str())
                     .header("X-MBX-APIKEY", self.api_key.clone())
                     .query(&params)
+                    .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
             }
@@ -530,6 +534,7 @@ impl TradeApi {
                     .post(format!("{}{}", self.base_url, endpoint).as_str())
                     .header("X-MBX-APIKEY", self.api_key.clone())
                     .query(&params)
+                    .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
             }
@@ -538,6 +543,7 @@ impl TradeApi {
                     .delete(format!("{}{}", self.base_url, endpoint).as_str())
                     .header("X-MBX-APIKEY", self.api_key.clone())
                     .query(&params)
+                    .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
             }

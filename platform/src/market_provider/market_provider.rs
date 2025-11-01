@@ -1,5 +1,5 @@
 use crate::{
-    errors::PlatformError,
+    errors::Result,
     models::{
         DepthData, ExchangeInfo, GetDepthRequest, GetKlinesRequest, GetTicker24hrRequest,
         GetTradesRequest, KlineData, Ticker24hr, Trade,
@@ -10,16 +10,13 @@ use tokio::sync::broadcast;
 
 #[async_trait]
 pub trait MarketProvider: Send + Sync {
-    async fn init(&mut self) -> Result<(), PlatformError>;
+    async fn init(&mut self) -> Result<()>;
 
-    async fn get_klines(&self, req: GetKlinesRequest) -> Result<Vec<KlineData>, PlatformError>;
-    async fn get_trades(&self, req: GetTradesRequest) -> Result<Vec<Trade>, PlatformError>;
-    async fn get_depth(&self, req: GetDepthRequest) -> Result<DepthData, PlatformError>;
-    async fn get_ticker_24hr(
-        &self,
-        req: GetTicker24hrRequest,
-    ) -> Result<Vec<Ticker24hr>, PlatformError>;
-    async fn get_exchange_info(&self) -> Result<ExchangeInfo, PlatformError>;
+    async fn get_klines(&self, req: GetKlinesRequest) -> Result<Vec<KlineData>>;
+    async fn get_trades(&self, req: GetTradesRequest) -> Result<Vec<Trade>>;
+    async fn get_depth(&self, req: GetDepthRequest) -> Result<DepthData>;
+    async fn get_ticker_24hr(&self, req: GetTicker24hrRequest) -> Result<Vec<Ticker24hr>>;
+    async fn get_exchange_info(&self) -> Result<ExchangeInfo>;
 
     fn subscribe_kline(&self) -> broadcast::Receiver<KlineData>;
     fn subscribe_trade(&self) -> broadcast::Receiver<Trade>;

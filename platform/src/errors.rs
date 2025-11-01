@@ -7,6 +7,9 @@ pub enum PlatformError {
 
     #[error("Market provider error: {message}")]
     MarketProviderError { message: String },
+
+    #[error("Trade provider error: {message}")]
+    TradeProviderError { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, PlatformError>;

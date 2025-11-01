@@ -259,7 +259,7 @@ impl MarketApi {
             reqwest::Method::POST => {
                 client
                     .post(format!("{}{}", self.base_url, endpoint))
-                    .form(&params)
+                    .query(&params)
                     .timeout(Duration::from_millis(self.timeout_milli_secs))
                     .send()
                     .await
