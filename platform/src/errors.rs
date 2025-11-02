@@ -10,6 +10,21 @@ pub enum PlatformError {
 
     #[error("Trade provider error: {message}")]
     TradeProviderError { message: String },
+
+    #[error("Data manager error: {message}")]
+    DataManagerError { message: String },
+
+    #[error("Factor error: {message}")]
+    FactorError { message: String },
+
+    #[error("Strategy error: {message}")]
+    StrategyError { message: String },
+
+    #[error("Execution error: {message}")]
+    ExecutionError { message: String },
+
+    #[error("Validation error: {message}")]
+    ValidationError { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, PlatformError>;
