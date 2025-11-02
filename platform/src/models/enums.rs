@@ -95,3 +95,26 @@ pub enum KlineInterval {
     #[serde(rename = "1M")]
     OneMonth,
 }
+
+impl KlineInterval {
+    pub fn to_millis(&self) -> u64 {
+        match self {
+            KlineInterval::OneSecond => 1000,
+            KlineInterval::OneMinute => 60 * 1000,
+            KlineInterval::ThreeMinutes => 3 * 60 * 1000,
+            KlineInterval::FiveMinutes => 5 * 60 * 1000,
+            KlineInterval::FifteenMinutes => 15 * 60 * 1000,
+            KlineInterval::ThirtyMinutes => 30 * 60 * 1000,
+            KlineInterval::OneHour => 60 * 60 * 1000,
+            KlineInterval::TwoHours => 2 * 60 * 60 * 1000,
+            KlineInterval::FourHours => 4 * 60 * 60 * 1000,
+            KlineInterval::SixHours => 6 * 60 * 60 * 1000,
+            KlineInterval::EightHours => 8 * 60 * 60 * 1000,
+            KlineInterval::TwelveHours => 12 * 60 * 60 * 1000,
+            KlineInterval::OneDay => 24 * 60 * 60 * 1000,
+            KlineInterval::ThreeDays => 3 * 24 * 60 * 60 * 1000,
+            KlineInterval::OneWeek => 7 * 24 * 60 * 60 * 1000,
+            KlineInterval::OneMonth => 30 * 24 * 60 * 60 * 1000,
+        }
+    }
+}
