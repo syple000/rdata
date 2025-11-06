@@ -44,6 +44,7 @@ pub struct Balance {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
+    pub account_id: String,
     pub balances: Vec<Balance>,
     pub timestamp: u64,
 }
