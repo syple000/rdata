@@ -51,6 +51,7 @@ pub struct Account {
     pub balances: Vec<Balance>,
     pub can_trade: bool,
     pub update_time: u64,
+    pub account_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

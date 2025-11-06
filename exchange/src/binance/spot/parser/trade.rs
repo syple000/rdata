@@ -233,6 +233,7 @@ pub struct GetAccountRaw {
     #[serde(rename = "updateTime")]
     update_time: u64,
     balances: Vec<BalanceRaw>,
+    uid: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -260,6 +261,7 @@ impl From<GetAccountRaw> for crate::binance::spot::models::Account {
                 .collect(),
             can_trade: raw.can_trade,
             update_time: raw.update_time,
+            account_id: raw.uid,
         }
     }
 }
