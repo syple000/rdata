@@ -634,3 +634,9 @@ impl MarketProvider for BinanceSpotMarketProvider {
         self.ticker_receiver.resubscribe()
     }
 }
+
+impl Drop for BinanceSpotMarketProvider {
+    fn drop(&mut self) {
+        self.shutdown_token.cancel();
+    }
+}

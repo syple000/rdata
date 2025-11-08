@@ -15,7 +15,7 @@ impl LatencyGuard {
 impl Drop for LatencyGuard {
     fn drop(&mut self) {
         let elapsed = self.start.elapsed();
-        log::info!(
+        log::debug!(
             "{} took {} us, {} ms",
             self.process_name,
             elapsed.as_micros(),

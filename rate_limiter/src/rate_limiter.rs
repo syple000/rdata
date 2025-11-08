@@ -1,4 +1,5 @@
 use crate::error::{RateLimiterError, Result};
+use log::info;
 use std::time::Duration;
 use time::get_current_nano_timestamp;
 use tokio::sync::Mutex;
@@ -112,6 +113,10 @@ impl RateLimiter {
             if sleep_duration.is_zero() {
                 continue;
             }
+            info!(
+                "RateLimiter sleeping for {:?} to respect rate limits",
+                sleep_duration
+            );
             tokio::time::sleep(sleep_duration).await;
         }
     }

@@ -1,7 +1,17 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum MarketType {
+    #[serde(rename = "binance_spot")]
     BinanceSpot,
+}
+
+impl MarketType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MarketType::BinanceSpot => "binance_spot",
+        }
+    }
 }
 
 pub enum FetchStrategy {

@@ -476,3 +476,9 @@ impl TradeProvider for BinanceSpotTradeProvider {
         self.account_update_receiver.resubscribe()
     }
 }
+
+impl Drop for BinanceSpotTradeProvider {
+    fn drop(&mut self) {
+        self.shutdown_token.cancel();
+    }
+}

@@ -2,8 +2,8 @@ use super::super::errors::*;
 use super::models::market::*;
 use super::parser::*;
 use crate::binance::spot::models::KlineInterval;
+use log::debug;
 use log::error;
-use log::info;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use rate_limiter::RateLimiter;
@@ -291,7 +291,7 @@ impl MarketStream {
         };
         drop(latency_guard);
 
-        info!("Received message: {}", text);
+        debug!("Received message: {}", text);
 
         let _lg = LatencyGuard::new("MarketStream::handle::preprocess");
         #[derive(Deserialize)]
