@@ -627,3 +627,9 @@ impl MarketData {
         })
     }
 }
+
+impl Drop for MarketData {
+    fn drop(&mut self) {
+        self.shutdown_token.cancel();
+    }
+}

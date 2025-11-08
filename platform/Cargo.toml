@@ -9,6 +9,7 @@ rate_limiter = { path = "../rate_limiter" }
 ws = { path = "../ws" }
 time = { path = "../time" }
 json = { path = "../json" }
+db = { path = "../db" }
 
 tokio = {version = "1.47.1", features = ["full"]}
 tokio-util = "0.7.16"
@@ -23,6 +24,7 @@ arc-swap = "1.7.1"
 dashmap = "6.1.0"
 env_logger = "0.11.8"
 rust_decimal_macros = "1.39.0"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3.23.0"
