@@ -404,6 +404,8 @@ async fn create_market_stream(
                                     });
                                 }
                                 continue;
+                            } else {
+                                error!("Failed to apply depth update for symbol {}", symbol);
                             }
                         }
                         drop(state_guard);

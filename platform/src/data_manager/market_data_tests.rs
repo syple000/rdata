@@ -221,8 +221,8 @@ async fn test_market_data_streaming_updates() {
     let config_content = r#"
     {
         "data_manager": {
-            "market_types": ["BinanceSpot"],
-            "BinanceSpot": {
+            "market_types": ["binance_spot"],
+            "binance_spot": {
                 "cache_capacity": 50,
                 "symbols": ["BTCUSDT"],
                 "kline_intervals": ["1m"]
@@ -234,8 +234,8 @@ async fn test_market_data_streaming_updates() {
                 "stream_base_url": "wss://stream.binance.com:9443/stream",
                 "subscribed_symbols": ["BTCUSDT"],
                 "subscribed_kline_intervals": ["1m"],
-                "api_rate_limits": [[1000, 10], [60000, 500]],
-                "stream_rate_limits": [[1000, 10]],
+                "api_rate_limits": [[1000, 500], [60000, 5000]],
+                "stream_rate_limits": [[1000, 500]],
                 "kline_event_channel_capacity": 5000,
                 "trade_event_channel_capacity": 5000,
                 "depth_event_channel_capacity": 5000,
@@ -339,7 +339,7 @@ async fn test_market_data_streaming_updates() {
                     &MarketType::BinanceSpot,
                     &"BTCUSDT".to_string(),
                     &KlineInterval::OneMinute,
-                    Some(10),
+                    Some(1),
                 )
                 .await
             {
@@ -348,7 +348,7 @@ async fn test_market_data_streaming_updates() {
 
             // Collect trades
             if let Ok(trades) = market_data_clone
-                .get_trades(&MarketType::BinanceSpot, &"BTCUSDT".to_string(), Some(10))
+                .get_trades(&MarketType::BinanceSpot, &"BTCUSDT".to_string(), Some(1))
                 .await
             {
                 trades_history_clone.lock().await.push(trades);
@@ -478,8 +478,8 @@ async fn test_market_data_cache_capacity() {
     let config_content = r#"
     {
         "data_manager": {
-            "market_types": ["BinanceSpot"],
-            "BinanceSpot": {
+            "market_types": ["binance_spot"],
+            "binance_spot": {
                 "cache_capacity": 10,
                 "symbols": ["BTCUSDT"],
                 "kline_intervals": ["1m"]
@@ -491,8 +491,8 @@ async fn test_market_data_cache_capacity() {
                 "stream_base_url": "wss://stream.binance.com:9443/stream",
                 "subscribed_symbols": ["BTCUSDT"],
                 "subscribed_kline_intervals": ["1m"],
-                "api_rate_limits": [[1000, 10], [60000, 500]],
-                "stream_rate_limits": [[1000, 10]],
+                "api_rate_limits": [[1000, 500], [60000, 5000]],
+                "stream_rate_limits": [[1000, 500]],
                 "kline_event_channel_capacity": 5000,
                 "trade_event_channel_capacity": 5000,
                 "depth_event_channel_capacity": 5000,
