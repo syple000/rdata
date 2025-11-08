@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::sqlite::SQLiteDB;
-    use crate::traits::DB;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -57,7 +56,7 @@ mod tests {
         assert!(user_id > 0);
 
         // 查询数据
-        let result = db.query("SELECT * FROM users").unwrap();
+        let result = db.execute_query("SELECT * FROM users", &[]).unwrap();
         assert_eq!(result.len(), 1);
 
         let row = &result.rows[0];
@@ -103,7 +102,7 @@ mod tests {
 
         // 验证更新
         let result = db
-            .query("SELECT age FROM users WHERE name = '张三'")
+            .execute_query("SELECT age FROM users WHERE name = '张三'", &[])
             .unwrap();
         assert_eq!(result.rows[0].get_i64("age"), Some(30));
     }
@@ -138,7 +137,7 @@ mod tests {
         assert_eq!(affected, 1);
 
         // 验证删除
-        let result = db.query("SELECT * FROM users").unwrap();
+        let result = db.execute_query("SELECT * FROM users", &[]).unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -165,11 +164,11 @@ mod tests {
 
         // 查询单行
         let row = db
-            .query_one("SELECT * FROM users WHERE name = ?1", &[&"张三"])
-            .unwrap();
+            .execute_query("SELECT * FROM users WHERE name = ?1", &[&"张三"])
+            .unwrap()
+            .rows[0]
+            .clone();
 
-        assert!(row.is_some());
-        let row = row.unwrap();
         assert_eq!(row.get_string("name"), Some("张三".to_string()));
     }
 
@@ -201,7 +200,11 @@ mod tests {
         .unwrap();
 
         // 查询并转换为强类型
-        let users: Vec<User> = db.query_typed("SELECT * FROM users", &[]).unwrap();
+        let users: Vec<User> = db
+            .execute_query("SELECT * FROM users", &[])
+            .unwrap()
+            .into_struct()
+            .unwrap();
 
         assert_eq!(users.len(), 2);
         assert_eq!(users[0].name, "张三");
@@ -241,7 +244,7 @@ mod tests {
         assert!(result.is_ok());
 
         // 验证数据已提交
-        let users = db.query("SELECT * FROM users").unwrap();
+        let users = db.execute_query("SELECT * FROM users", &[]).unwrap();
         assert_eq!(users.len(), 2);
     }
 
@@ -279,7 +282,7 @@ mod tests {
         assert!(result.is_err());
 
         // 验证数据已回滚
-        let users = db.query("SELECT * FROM users").unwrap();
+        let users = db.execute_query("SELECT * FROM users", &[]).unwrap();
         assert_eq!(users.len(), 0);
     }
 
@@ -350,7 +353,9 @@ mod tests {
         }
 
         // 验证结果
-        let result = db.query("SELECT value FROM counter WHERE id = 1").unwrap();
+        let result = db
+            .execute_query("SELECT value FROM counter WHERE id = 1", &[])
+            .unwrap();
         assert_eq!(result.rows[0].get_i64("value"), Some(100));
     }
 
@@ -383,7 +388,9 @@ mod tests {
         }
 
         // 验证数据
-        let result = db.query("SELECT COUNT(*) as count FROM users").unwrap();
+        let result = db
+            .execute_query("SELECT COUNT(*) as count FROM users", &[])
+            .unwrap();
         assert_eq!(result.rows[0].get_i64("count"), Some(100));
     }
 
