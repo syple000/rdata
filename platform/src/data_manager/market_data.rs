@@ -60,7 +60,7 @@ impl<T: Clone> Cache<T> {
 }
 
 pub struct MarketData {
-    market_types: Vec<MarketType>,
+    market_types: Arc<Vec<MarketType>>,
     klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<Cache<KlineData>>>>>,
     trades: Arc<HashMap<(MarketType, String), Arc<RwLock<Cache<Trade>>>>>,
     depths: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<DepthData>>>>>,
@@ -70,12 +70,12 @@ pub struct MarketData {
 
 impl MarketData {
     pub fn new(config: Config) -> Result<Self> {
-        let market_types: Vec<MarketType> =
-            config.get("data_manager.market_types").map_err(|e| {
+        let market_types: Arc<Vec<MarketType>> =
+            Arc::new(config.get("data_manager.market_types").map_err(|e| {
                 PlatformError::DataManagerError {
                     message: format!("data_manager market_types not found: {}", e),
                 }
-            })?;
+            })?);
 
         let mut klines = HashMap::new();
         let mut trades = HashMap::new();
@@ -155,16 +155,15 @@ impl MarketData {
         market_providers: HashMap<MarketType, Arc<dyn MarketProvider>>,
     ) -> Result<()> {
         for market_type in self.market_types.iter() {
-            if market_providers.get(market_type).is_none() {
-                return Err(PlatformError::DataManagerError {
-                    message: format!(
-                        "Market provider not found for market type: {:?}",
-                        market_type
-                    ),
-                });
-            }
-
-            let market_provider = market_providers.get(&market_type).unwrap().clone();
+            let market_provider =
+                market_providers
+                    .get(market_type)
+                    .ok_or(PlatformError::DataManagerError {
+                        message: format!(
+                            "Market provider not found for market type: {:?}",
+                            market_type
+                        ),
+                    })?;
 
             info!(
                 "Initializing MarketData subscription for market type: {:?}",

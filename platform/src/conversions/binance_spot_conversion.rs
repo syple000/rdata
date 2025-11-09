@@ -293,7 +293,6 @@ impl From<ex_models::Account> for Account {
         Account {
             balances: value.balances.into_iter().map(|b| b.into()).collect(),
             timestamp: value.update_time,
-            account_id: value.account_id.to_string(),
         }
     }
 }

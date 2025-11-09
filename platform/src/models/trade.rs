@@ -2,7 +2,7 @@ use crate::models::{OrderSide, OrderStatus, OrderType, TimeInForce};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Order {
     pub symbol: String,
     pub order_id: String,
@@ -21,7 +21,7 @@ pub struct Order {
     pub update_time: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserTrade {
     pub trade_id: String,
     pub order_id: String,
@@ -35,16 +35,15 @@ pub struct UserTrade {
     pub timestamp: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Balance {
     pub asset: String,
     pub free: Decimal,
     pub locked: Decimal,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Account {
-    pub account_id: String,
     pub balances: Vec<Balance>,
     pub timestamp: u64,
 }
