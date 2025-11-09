@@ -361,12 +361,7 @@ impl TradeApi {
             params.push(("endTime", end_time.to_string()));
         }
 
-        let weight = if req.order_id.is_some() {
-            params.push(("orderId", req.order_id.unwrap().to_string()));
-            5
-        } else {
-            20
-        };
+        let weight = if req.order_id.is_some() { 5 } else { 20 };
 
         let text = self
             .send_signed_request(reqwest::Method::GET, "/api/v3/myTrades", params, weight)
@@ -471,7 +466,10 @@ impl TradeApi {
         if resp.status() != reqwest::StatusCode::OK {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            error!("Response error: status: {}, text: {}", status, text);
+            error!(
+                "Response error: status: {}, text: {}. endpoint: {}, req: {:?}",
+                status, text, endpoint, params
+            );
             return Err(BinanceError::ParseResultError {
                 message: format!("status: {}, text: {}", status, text),
             });

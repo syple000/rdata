@@ -31,7 +31,7 @@ pub struct UserTrade {
     pub trade_quantity: Decimal,
     pub commission: Decimal,
     pub commission_asset: String,
-    pub is_maker: bool,
+    pub is_maker: u64,
     pub timestamp: u64,
 }
 

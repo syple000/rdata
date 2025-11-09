@@ -17,9 +17,9 @@ struct Inner {
 
 impl Inner {
     fn cleanup(&mut self, cutoff: u128) {
-        for e in self.data.iter() {
-            if e.0 < cutoff && self.size > 0 {
-                self.weight_sum -= e.1;
+        while self.size > 0 {
+            if self.data[self.start].0 < cutoff {
+                self.weight_sum -= self.data[self.start].1;
                 self.start = (self.start + 1) % self.data.len();
                 self.size -= 1;
             } else {

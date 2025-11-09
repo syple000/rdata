@@ -29,11 +29,31 @@ pub enum SymbolStatus {
     EndOfDay,
 }
 
+impl SymbolStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SymbolStatus::Trading => "TRADING",
+            SymbolStatus::Halted => "HALTED",
+            SymbolStatus::Break => "BREAK",
+            SymbolStatus::EndOfDay => "END_OF_DAY",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderSide {
     Buy,
     Sell,
+}
+
+impl OrderSide {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OrderSide::Buy => "BUY",
+            OrderSide::Sell => "SELL",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,6 +66,20 @@ pub enum OrderType {
     TakeProfit,
     TakeProfitLimit,
     LimitMaker,
+}
+
+impl OrderType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OrderType::Limit => "LIMIT",
+            OrderType::Market => "MARKET",
+            OrderType::StopLoss => "STOP_LOSS",
+            OrderType::StopLossLimit => "STOP_LOSS_LIMIT",
+            OrderType::TakeProfit => "TAKE_PROFIT",
+            OrderType::TakeProfitLimit => "TAKE_PROFIT_LIMIT",
+            OrderType::LimitMaker => "LIMIT_MAKER",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -62,12 +96,38 @@ pub enum OrderStatus {
     ExpiredInMatch,
 }
 
+impl OrderStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OrderStatus::New => "NEW",
+            OrderStatus::PendingNew => "PENDING_NEW",
+            OrderStatus::PartiallyFilled => "PARTIALLY_FILLED",
+            OrderStatus::Filled => "FILLED",
+            OrderStatus::Canceled => "CANCELED",
+            OrderStatus::PendingCancel => "PENDING_CANCEL",
+            OrderStatus::Rejected => "REJECTED",
+            OrderStatus::Expired => "EXPIRED",
+            OrderStatus::ExpiredInMatch => "EXPIRED_IN_MATCH",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TimeInForce {
     Gtc,
     Ioc,
     Fok,
+}
+
+impl TimeInForce {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TimeInForce::Gtc => "GTC",
+            TimeInForce::Ioc => "IOC",
+            TimeInForce::Fok => "FOK",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -125,6 +185,27 @@ impl KlineInterval {
             KlineInterval::ThreeDays => 3 * 24 * 60 * 60 * 1000,
             KlineInterval::OneWeek => 7 * 24 * 60 * 60 * 1000,
             KlineInterval::OneMonth => 30 * 24 * 60 * 60 * 1000,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KlineInterval::OneSecond => "1s",
+            KlineInterval::OneMinute => "1m",
+            KlineInterval::ThreeMinutes => "3m",
+            KlineInterval::FiveMinutes => "5m",
+            KlineInterval::FifteenMinutes => "15m",
+            KlineInterval::ThirtyMinutes => "30m",
+            KlineInterval::OneHour => "1h",
+            KlineInterval::TwoHours => "2h",
+            KlineInterval::FourHours => "4h",
+            KlineInterval::SixHours => "6h",
+            KlineInterval::EightHours => "8h",
+            KlineInterval::TwelveHours => "12h",
+            KlineInterval::OneDay => "1d",
+            KlineInterval::ThreeDays => "3d",
+            KlineInterval::OneWeek => "1w",
+            KlineInterval::OneMonth => "1M",
         }
     }
 }

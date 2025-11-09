@@ -263,7 +263,7 @@ impl From<ex_models::Trade> for UserTrade {
             trade_quantity: value.trade_quantity,
             commission: value.commission,
             commission_asset: value.commission_asset,
-            is_maker: value.is_maker,
+            is_maker: if value.is_maker { 1 } else { 0 },
             timestamp: value.timestamp,
         }
     }
