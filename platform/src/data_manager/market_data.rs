@@ -61,6 +61,7 @@ impl<T: Clone> Cache<T> {
 
 pub struct MarketData {
     market_types: Arc<Vec<MarketType>>,
+    market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
     klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<Cache<KlineData>>>>>,
     trades: Arc<HashMap<(MarketType, String), Arc<RwLock<Cache<Trade>>>>>,
     depths: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<DepthData>>>>>,
@@ -69,7 +70,10 @@ pub struct MarketData {
 }
 
 impl MarketData {
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(
+        config: Config,
+        market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
+    ) -> Result<Self> {
         let market_types: Arc<Vec<MarketType>> =
             Arc::new(config.get("data_manager.market_types").map_err(|e| {
                 PlatformError::DataManagerError {
@@ -142,6 +146,7 @@ impl MarketData {
 
         Ok(Self {
             market_types,
+            market_providers,
             klines: Arc::new(klines),
             trades: Arc::new(trades),
             depths: Arc::new(depths),
@@ -150,13 +155,10 @@ impl MarketData {
         })
     }
 
-    pub async fn init(
-        &self,
-        market_providers: HashMap<MarketType, Arc<dyn MarketProvider>>,
-    ) -> Result<()> {
+    pub async fn init(&self) -> Result<()> {
         for market_type in self.market_types.iter() {
             let market_provider =
-                market_providers
+                self.market_providers
                     .get(market_type)
                     .ok_or(PlatformError::DataManagerError {
                         message: format!(
@@ -273,14 +275,15 @@ impl MarketData {
 
         // API获取kline/trade/depth/ticker数据初始化
         info!("Initializing MarketData from API");
-        self.init_data_from_api(market_providers).await?;
+        self.init_data_from_api(self.market_providers.clone())
+            .await?;
 
         Ok(())
     }
 
     async fn init_data_from_api(
         &self,
-        market_providers: HashMap<MarketType, Arc<dyn MarketProvider>>,
+        market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
     ) -> Result<()> {
         for market_type in self.market_types.iter() {
             let market_provider = market_providers.get(market_type).unwrap();

@@ -58,21 +58,21 @@ async fn test_market_data_initialization() {
     // Load config
     let config = Config::from_json(config_path).unwrap();
 
-    // Initialize MarketData
-    let market_data = MarketData::new(config.clone()).unwrap();
-
-    info!("MarketData initialized successfully.");
-
     // Initialize market provider
-    let mut provider = BinanceSpotMarketProvider::new(Arc::new(config)).unwrap();
+    let mut provider = BinanceSpotMarketProvider::new(Arc::new(config.clone())).unwrap();
     provider.init().await.unwrap();
 
     // Create market providers map
     let mut market_providers: HashMap<MarketType, Arc<dyn MarketProvider>> = HashMap::new();
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
 
+    // Initialize MarketData
+    let market_data = MarketData::new(config.clone(), Arc::new(market_providers)).unwrap();
+
+    info!("MarketData initialized successfully.");
+
     // Initialize market data
-    market_data.init(market_providers.clone()).await.unwrap();
+    market_data.init().await.unwrap();
 
     info!("MarketData init() completed. Waiting for initial data collection...");
 
@@ -258,21 +258,22 @@ async fn test_market_data_streaming_updates() {
     // Load config
     let config = Config::from_json(config_path).unwrap();
 
-    // Initialize MarketData
-    let market_data = Arc::new(MarketData::new(config.clone()).unwrap());
-
-    info!("MarketData initialized successfully.");
-
     // Initialize market provider
-    let mut provider = BinanceSpotMarketProvider::new(Arc::new(config)).unwrap();
+    let mut provider = BinanceSpotMarketProvider::new(Arc::new(config.clone())).unwrap();
     provider.init().await.unwrap();
 
     // Create market providers map
     let mut market_providers: HashMap<MarketType, Arc<dyn MarketProvider>> = HashMap::new();
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
 
+    // Initialize MarketData
+    let market_data =
+        Arc::new(MarketData::new(config.clone(), Arc::new(market_providers)).unwrap());
+
+    info!("MarketData initialized successfully.");
+
     // Initialize market data
-    market_data.init(market_providers.clone()).await.unwrap();
+    market_data.init().await.unwrap();
 
     info!("MarketData init() completed. Waiting for streaming updates...");
 
@@ -515,21 +516,21 @@ async fn test_market_data_cache_capacity() {
     // Load config
     let config = Config::from_json(config_path).unwrap();
 
-    // Initialize MarketData
-    let market_data = MarketData::new(config.clone()).unwrap();
-
-    info!("MarketData initialized with cache_capacity=10.");
-
     // Initialize market provider
-    let mut provider = BinanceSpotMarketProvider::new(Arc::new(config)).unwrap();
+    let mut provider = BinanceSpotMarketProvider::new(Arc::new(config.clone())).unwrap();
     provider.init().await.unwrap();
 
     // Create market providers map
     let mut market_providers: HashMap<MarketType, Arc<dyn MarketProvider>> = HashMap::new();
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
 
+    // Initialize MarketData
+    let market_data = MarketData::new(config.clone(), Arc::new(market_providers)).unwrap();
+
+    info!("MarketData initialized with cache_capacity=10.");
+
     // Initialize market data
-    market_data.init(market_providers.clone()).await.unwrap();
+    market_data.init().await.unwrap();
 
     info!("MarketData init() completed. Waiting for data...");
 
