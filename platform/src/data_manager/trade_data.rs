@@ -1,3 +1,4 @@
+use super::TradeDataManager;
 use crate::{
     config::Config,
     errors::{PlatformError, Result},
@@ -8,6 +9,7 @@ use crate::{
     },
     trade_provider::TradeProvider,
 };
+use async_trait::async_trait;
 use db::{common::Row, sqlite::SQLiteDB};
 use rust_decimal::Decimal;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
@@ -1113,16 +1115,6 @@ impl TradeData {
         Ok(())
     }
 
-    pub async fn update_order(&self, market_type: &MarketType, order: Order) -> Result<()> {
-        Self::update_order_inner(
-            self.open_order_stats.clone(),
-            self.db.clone(),
-            market_type,
-            order,
-        )
-        .await
-    }
-
     async fn update_order_inner(
         open_order_stats: Arc<HashMap<MarketType, Arc<RwLock<OpenOrderTradeStat>>>>,
         db: Arc<SQLiteDB>,
@@ -1176,20 +1168,6 @@ impl TradeData {
         Ok(())
     }
 
-    pub async fn update_user_trade(
-        &self,
-        market_type: &MarketType,
-        trade: UserTrade,
-    ) -> Result<()> {
-        Self::update_user_trade_inner(
-            self.open_order_stats.clone(),
-            self.db.clone(),
-            market_type,
-            trade,
-        )
-        .await
-    }
-
     async fn update_user_trade_inner(
         open_order_stats: Arc<HashMap<MarketType, Arc<RwLock<OpenOrderTradeStat>>>>,
         db: Arc<SQLiteDB>,
@@ -1232,11 +1210,6 @@ impl TradeData {
         Ok(())
     }
 
-    pub async fn update_account(&self, market_type: &MarketType, account: Account) -> Result<()> {
-        Self::update_account_inner(self.accounts.clone(), self.db.clone(), market_type, account)
-            .await
-    }
-
     async fn update_account_inner(
         accounts: Arc<HashMap<MarketType, Arc<RwLock<Option<Account>>>>>,
         db: Arc<SQLiteDB>,
@@ -1265,20 +1238,6 @@ impl TradeData {
         // 更新数据库
         Self::_update_account(db.clone(), market_type, &account)?;
         Ok(())
-    }
-
-    pub async fn update_account_update(
-        &self,
-        market_type: &MarketType,
-        account_update: AccountUpdate,
-    ) -> Result<()> {
-        Self::update_account_update_inner(
-            self.accounts.clone(),
-            self.db.clone(),
-            market_type,
-            account_update,
-        )
-        .await
     }
 
     async fn update_account_update_inner(
@@ -1328,8 +1287,54 @@ impl TradeData {
             });
         }
     }
+}
 
-    pub async fn get_account(&self, market_type: &MarketType) -> Result<Option<Account>> {
+#[async_trait]
+impl TradeDataManager for TradeData {
+    async fn init(&self) -> Result<()> {
+        self.init().await
+    }
+
+    async fn update_order(&self, market_type: &MarketType, order: Order) -> Result<()> {
+        Self::update_order_inner(
+            self.open_order_stats.clone(),
+            self.db.clone(),
+            market_type,
+            order,
+        )
+        .await
+    }
+
+    async fn update_user_trade(&self, market_type: &MarketType, trade: UserTrade) -> Result<()> {
+        Self::update_user_trade_inner(
+            self.open_order_stats.clone(),
+            self.db.clone(),
+            market_type,
+            trade,
+        )
+        .await
+    }
+
+    async fn update_account(&self, market_type: &MarketType, account: Account) -> Result<()> {
+        Self::update_account_inner(self.accounts.clone(), self.db.clone(), market_type, account)
+            .await
+    }
+
+    async fn update_account_update(
+        &self,
+        market_type: &MarketType,
+        account_update: AccountUpdate,
+    ) -> Result<()> {
+        Self::update_account_update_inner(
+            self.accounts.clone(),
+            self.db.clone(),
+            market_type,
+            account_update,
+        )
+        .await
+    }
+
+    async fn get_account(&self, market_type: &MarketType) -> Result<Option<Account>> {
         let account_lock =
             self.accounts
                 .get(market_type)
@@ -1341,7 +1346,7 @@ impl TradeData {
         Ok(account_guard.clone())
     }
 
-    pub async fn get_open_orders(&self, market_type: &MarketType) -> Result<Vec<Order>> {
+    async fn get_open_orders(&self, market_type: &MarketType) -> Result<Vec<Order>> {
         let stat_lock =
             self.open_order_stats
                 .get(market_type)
@@ -1357,7 +1362,7 @@ impl TradeData {
         Ok(orders)
     }
 
-    pub async fn get_user_trades(&self, market_type: &MarketType) -> Result<Vec<UserTrade>> {
+    async fn get_user_trades(&self, market_type: &MarketType) -> Result<Vec<UserTrade>> {
         let stat_lock =
             self.open_order_stats
                 .get(market_type)
@@ -1373,7 +1378,7 @@ impl TradeData {
         Ok(trades)
     }
 
-    pub async fn get_user_trades_by_order(
+    async fn get_user_trades_by_order(
         &self,
         market_type: &MarketType,
         order_id: &str,
@@ -1408,11 +1413,7 @@ impl TradeData {
         Ok(trades)
     }
 
-    pub async fn place_order(
-        &self,
-        market_type: &MarketType,
-        req: PlaceOrderRequest,
-    ) -> Result<Order> {
+    async fn place_order(&self, market_type: &MarketType, req: PlaceOrderRequest) -> Result<Order> {
         let trade_provider =
             self.trade_providers
                 .get(market_type)
@@ -1425,11 +1426,7 @@ impl TradeData {
         trade_provider.place_order(req).await
     }
 
-    pub async fn cancel_order(
-        &self,
-        market_type: &MarketType,
-        req: CancelOrderRequest,
-    ) -> Result<()> {
+    async fn cancel_order(&self, market_type: &MarketType, req: CancelOrderRequest) -> Result<()> {
         let trade_provider =
             self.trade_providers
                 .get(market_type)
@@ -1442,11 +1439,11 @@ impl TradeData {
         trade_provider.cancel_order(req).await
     }
 
-    pub async fn get_account_from_db(&self, market_type: &MarketType) -> Result<Option<Account>> {
+    async fn get_account_from_db(&self, market_type: &MarketType) -> Result<Option<Account>> {
         Self::_get_account(self.db.clone(), market_type)
     }
 
-    pub async fn get_orders_from_db(
+    async fn get_orders_from_db(
         &self,
         market_type: &MarketType,
         symbol: &str,
@@ -1455,7 +1452,7 @@ impl TradeData {
         Self::_get_orders(self.db.clone(), market_type, symbol, limit)
     }
 
-    pub async fn get_user_trades_from_db(
+    async fn get_user_trades_from_db(
         &self,
         market_type: &MarketType,
         symbol: &str,
@@ -1464,11 +1461,11 @@ impl TradeData {
         Self::_get_user_trades(self.db.clone(), market_type, symbol, limit)
     }
 
-    pub async fn get_last_sync_ts_from_db(&self, market_type: &MarketType) -> Result<Option<u64>> {
+    async fn get_last_sync_ts_from_db(&self, market_type: &MarketType) -> Result<Option<u64>> {
         Self::_get_last_sync_ts(self.db.clone(), market_type)
     }
 
-    pub async fn get_order_by_id_from_db(
+    async fn get_order_by_id_from_db(
         &self,
         market_type: &MarketType,
         symbol: &str,
@@ -1477,11 +1474,11 @@ impl TradeData {
         Self::_get_order_by_id(self.db.clone(), market_type, symbol, order_id)
     }
 
-    pub async fn get_open_orders_from_db(&self, market_type: &MarketType) -> Result<Vec<Order>> {
+    async fn get_open_orders_from_db(&self, market_type: &MarketType) -> Result<Vec<Order>> {
         Self::_get_open_orders(self.db.clone(), market_type)
     }
 
-    pub async fn get_user_trades_by_order_id_from_db(
+    async fn get_user_trades_by_order_id_from_db(
         &self,
         market_type: &MarketType,
         symbol: &str,

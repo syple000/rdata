@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    data_manager::trade_data::TradeData,
+    data_manager::{trade_data::TradeData, TradeDataManager},
     models::{
         Account, Balance, CancelOrderRequest, GetOpenOrdersRequest, GetUserTradesRequest,
         MarketType, Order, OrderSide, OrderType, PlaceOrderRequest, TimeInForce, UserTrade,
@@ -77,6 +77,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
 
     // Initialize TradeData
     let trade_data = TradeData::new(config.clone(), Arc::new(trade_providers)).unwrap();
+    let trade_data: Arc<dyn TradeDataManager> = Arc::new(trade_data);
 
     info!("TradeData initialized successfully.");
 

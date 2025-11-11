@@ -1,9 +1,11 @@
+use super::MarketDataManager;
 use crate::{
     config::Config,
     errors::{PlatformError, Result},
     market_provider::MarketProvider,
     models::{DepthData, KlineData, KlineInterval, MarketType, Ticker24hr, Trade},
 };
+use async_trait::async_trait;
 use log::info;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -534,14 +536,6 @@ impl MarketData {
         Ok(())
     }
 
-    pub async fn add_kline(
-        &self,
-        market_type: &MarketType,
-        kline: KlineData,
-    ) -> Result<Option<KlineData>> {
-        Self::add_kline_inner(self.klines.clone(), market_type, kline).await
-    }
-
     async fn add_kline_inner(
         klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<Cache<KlineData>>>>>,
         market_type: &MarketType,
@@ -561,32 +555,6 @@ impl MarketData {
         }
     }
 
-    pub async fn get_klines(
-        &self,
-        market_type: &MarketType,
-        symbol: &String,
-        interval: &KlineInterval,
-        limit: Option<usize>,
-    ) -> Result<Vec<KlineData>> {
-        if let Some(cache) =
-            self.klines
-                .get(&(market_type.clone(), symbol.clone(), interval.clone()))
-        {
-            let cache = cache.read().await;
-            return Ok(cache.get(limit));
-        }
-        Err(PlatformError::DataManagerError {
-            message: format!(
-                "Kline cache not found for: {:?}",
-                (market_type, symbol, interval)
-            ),
-        })
-    }
-
-    pub async fn add_trade(&self, market_type: &MarketType, trade: Trade) -> Result<Option<Trade>> {
-        Self::add_trade_inner(self.trades.clone(), market_type, trade).await
-    }
-
     async fn add_trade_inner(
         trades: Arc<HashMap<(MarketType, String), Arc<RwLock<Cache<Trade>>>>>,
         market_type: &MarketType,
@@ -600,25 +568,6 @@ impl MarketData {
                 message: format!("Trade cache not found for: {:?}", trade),
             })
         }
-    }
-
-    pub async fn get_trades(
-        &self,
-        market_type: &MarketType,
-        symbol: &String,
-        limit: Option<usize>,
-    ) -> Result<Vec<Trade>> {
-        if let Some(cache) = self.trades.get(&(market_type.clone(), symbol.clone())) {
-            let cache = cache.read().await;
-            return Ok(cache.get(limit));
-        }
-        Err(PlatformError::DataManagerError {
-            message: format!("Trade cache not found for: {:?}", (market_type, symbol)),
-        })
-    }
-
-    pub async fn add_depth(&self, market_type: &MarketType, depth: DepthData) -> Result<()> {
-        Self::add_depth_inner(self.depths.clone(), market_type, depth).await
     }
 
     async fn add_depth_inner(
@@ -641,20 +590,6 @@ impl MarketData {
                 message: format!("Depth cache not found for: {:?}", depth),
             })
         }
-    }
-
-    pub async fn get_depth(
-        &self,
-        market_type: &MarketType,
-        symbol: &String,
-    ) -> Result<Option<DepthData>> {
-        if let Some(cache) = self.depths.get(&(market_type.clone(), symbol.clone())) {
-            let cache = cache.read().await;
-            return Ok(cache.clone());
-        }
-        Err(PlatformError::DataManagerError {
-            message: format!("Depth cache not found for: {:?}", (market_type, symbol)),
-        })
     }
 
     pub async fn add_ticker(&self, market_type: &MarketType, ticker: Ticker24hr) -> Result<()> {
@@ -682,8 +617,86 @@ impl MarketData {
             })
         }
     }
+}
 
-    pub async fn get_ticker(
+#[async_trait]
+impl MarketDataManager for MarketData {
+    async fn init(&self) -> Result<()> {
+        self.init().await
+    }
+
+    async fn add_kline(
+        &self,
+        market_type: &MarketType,
+        kline: KlineData,
+    ) -> Result<Option<KlineData>> {
+        Self::add_kline_inner(self.klines.clone(), market_type, kline).await
+    }
+
+    async fn get_klines(
+        &self,
+        market_type: &MarketType,
+        symbol: &String,
+        interval: &KlineInterval,
+        limit: Option<usize>,
+    ) -> Result<Vec<KlineData>> {
+        if let Some(cache) =
+            self.klines
+                .get(&(market_type.clone(), symbol.clone(), interval.clone()))
+        {
+            let cache = cache.read().await;
+            return Ok(cache.get(limit));
+        }
+        Err(PlatformError::DataManagerError {
+            message: format!(
+                "Kline cache not found for: {:?}",
+                (market_type, symbol, interval)
+            ),
+        })
+    }
+
+    async fn add_trade(&self, market_type: &MarketType, trade: Trade) -> Result<Option<Trade>> {
+        Self::add_trade_inner(self.trades.clone(), market_type, trade).await
+    }
+
+    async fn get_trades(
+        &self,
+        market_type: &MarketType,
+        symbol: &String,
+        limit: Option<usize>,
+    ) -> Result<Vec<Trade>> {
+        if let Some(cache) = self.trades.get(&(market_type.clone(), symbol.clone())) {
+            let cache = cache.read().await;
+            return Ok(cache.get(limit));
+        }
+        Err(PlatformError::DataManagerError {
+            message: format!("Trade cache not found for: {:?}", (market_type, symbol)),
+        })
+    }
+
+    async fn add_depth(&self, market_type: &MarketType, depth: DepthData) -> Result<()> {
+        Self::add_depth_inner(self.depths.clone(), market_type, depth).await
+    }
+
+    async fn get_depth(
+        &self,
+        market_type: &MarketType,
+        symbol: &String,
+    ) -> Result<Option<DepthData>> {
+        if let Some(cache) = self.depths.get(&(market_type.clone(), symbol.clone())) {
+            let cache = cache.read().await;
+            return Ok(cache.clone());
+        }
+        Err(PlatformError::DataManagerError {
+            message: format!("Depth cache not found for: {:?}", (market_type, symbol)),
+        })
+    }
+
+    async fn add_ticker(&self, market_type: &MarketType, ticker: Ticker24hr) -> Result<()> {
+        self.add_ticker(market_type, ticker).await
+    }
+
+    async fn get_ticker(
         &self,
         market_type: &MarketType,
         symbol: &String,
