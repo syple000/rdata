@@ -7,7 +7,10 @@ use crate::{
 use log::info;
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -59,9 +62,56 @@ impl<T: Clone> Cache<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MarketSignalType {
+    Kline,
+    Trade,
+    Depth,
+    Ticker,
+}
+
+pub struct MarketSignal {
+    kline: Arc<AtomicBool>,
+    trade: Arc<AtomicBool>,
+    depth: Arc<AtomicBool>,
+    ticker: Arc<AtomicBool>,
+}
+
+impl MarketSignal {
+    pub fn new() -> Self {
+        Self {
+            kline: Arc::new(AtomicBool::new(false)),
+            trade: Arc::new(AtomicBool::new(false)),
+            depth: Arc::new(AtomicBool::new(false)),
+            ticker: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn check_and_reset(&self, signal_type: MarketSignalType) -> bool {
+        let signal = match signal_type {
+            MarketSignalType::Kline => &self.kline,
+            MarketSignalType::Trade => &self.trade,
+            MarketSignalType::Depth => &self.depth,
+            MarketSignalType::Ticker => &self.ticker,
+        };
+        signal.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn set(&self, signal_type: MarketSignalType) {
+        let signal = match signal_type {
+            MarketSignalType::Kline => &self.kline,
+            MarketSignalType::Trade => &self.trade,
+            MarketSignalType::Depth => &self.depth,
+            MarketSignalType::Ticker => &self.ticker,
+        };
+        signal.store(true, Ordering::Release);
+    }
+}
+
 pub struct MarketData {
     market_types: Arc<Vec<MarketType>>,
     market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
+    market_signals: Arc<Vec<Arc<MarketSignal>>>,
     klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<Cache<KlineData>>>>>,
     trades: Arc<HashMap<(MarketType, String), Arc<RwLock<Cache<Trade>>>>>,
     depths: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<DepthData>>>>>,
@@ -73,6 +123,7 @@ impl MarketData {
     pub fn new(
         config: Config,
         market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
+        market_signals: Arc<Vec<Arc<MarketSignal>>>,
     ) -> Result<Self> {
         let market_types: Arc<Vec<MarketType>> =
             Arc::new(config.get("data_manager.market_types").map_err(|e| {
@@ -147,6 +198,7 @@ impl MarketData {
         Ok(Self {
             market_types,
             market_providers,
+            market_signals,
             klines: Arc::new(klines),
             trades: Arc::new(trades),
             depths: Arc::new(depths),
@@ -176,6 +228,7 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let klines = self.klines.clone();
             let market_type_clone = market_type.clone();
+            let market_signals = self.market_signals.clone();
             let mut kline_sub = market_provider.subscribe_kline();
             tokio::spawn(async move {
                 loop {
@@ -187,6 +240,9 @@ impl MarketData {
                             match kline {
                                 Ok(kline) => {
                                     let _ = Self::add_kline_inner(klines.clone(), &market_type_clone, kline).await;
+                                    for market_signal in market_signals.iter() {
+                                        market_signal.set(MarketSignalType::Kline);
+                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -201,6 +257,7 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let trades = self.trades.clone();
             let market_type_clone = market_type.clone();
+            let market_signals = self.market_signals.clone();
             let mut trade_sub = market_provider.subscribe_trade();
             tokio::spawn(async move {
                 loop {
@@ -212,6 +269,9 @@ impl MarketData {
                             match trade {
                                 Ok(trade) => {
                                     let _ = Self::add_trade_inner(trades.clone(), &market_type_clone, trade).await;
+                                    for market_signal in market_signals.iter() {
+                                        market_signal.set(MarketSignalType::Trade);
+                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -226,6 +286,7 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let depths = self.depths.clone();
             let market_type_clone = market_type.clone();
+            let market_signals = self.market_signals.clone();
             let mut depth_sub = market_provider.subscribe_depth();
             tokio::spawn(async move {
                 loop {
@@ -237,6 +298,9 @@ impl MarketData {
                             match depth {
                                 Ok(depth) => {
                                     let _ = Self::add_depth_inner(depths.clone(), &market_type_clone, depth).await;
+                                    for market_signal in market_signals.iter() {
+                                        market_signal.set(MarketSignalType::Depth);
+                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -251,6 +315,7 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let tickers = self.tickers.clone();
             let market_type_clone = market_type.clone();
+            let market_signals = self.market_signals.clone();
             let mut ticker_sub = market_provider.subscribe_ticker();
             tokio::spawn(async move {
                 loop {
@@ -262,6 +327,9 @@ impl MarketData {
                             match ticker {
                                 Ok(ticker) => {
                                     let _ = Self::add_ticker_inner(tickers.clone(), &market_type_clone, ticker).await;
+                                    for market_signal in market_signals.iter() {
+                                        market_signal.set(MarketSignalType::Ticker);
+                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
