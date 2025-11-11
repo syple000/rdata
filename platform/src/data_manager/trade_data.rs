@@ -4,8 +4,8 @@ use crate::{
     errors::{PlatformError, Result},
     models::{
         Account, AccountUpdate, Balance, CancelOrderRequest, GetAllOrdersRequest,
-        GetOpenOrdersRequest, GetOrderRequest, GetUserTradesRequest, MarketType, Order,
-        OrderStatus, PlaceOrderRequest, UserTrade,
+        GetOpenOrdersRequest, GetUserTradesRequest, MarketType, Order, OrderStatus,
+        PlaceOrderRequest, UserTrade,
     },
     trade_provider::TradeProvider,
 };
@@ -18,16 +18,12 @@ use tokio_util::sync::CancellationToken;
 
 struct OpenOrderTradeStat {
     orders: HashMap<String, Order>,
-    trades: HashMap<String, UserTrade>,
-    order_trade_ids: HashMap<String, Vec<String>>,
 }
 
 pub struct TradeData {
     market_types: Arc<Vec<MarketType>>,
-    symbols: Arc<HashMap<MarketType, Vec<String>>>,
     refresh_interval: Duration,
     shutdown_token: CancellationToken,
-
     trade_providers: Arc<HashMap<MarketType, Arc<dyn TradeProvider>>>,
 
     // 账户缓存
@@ -61,27 +57,14 @@ impl TradeData {
 
         let mut accounts = HashMap::new();
         let mut stats = HashMap::new();
-        let mut symbols = HashMap::new();
         for market_type in market_types.iter() {
             accounts.insert(market_type.clone(), Arc::new(RwLock::new(None)));
             stats.insert(
                 market_type.clone(),
                 Arc::new(RwLock::new(OpenOrderTradeStat {
                     orders: HashMap::new(),
-                    trades: HashMap::new(),
-                    order_trade_ids: HashMap::new(),
                 })),
             );
-            let ss: Vec<String> = config
-                .get(&format!("data_manager.{}.symbols", market_type.as_str()))
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!(
-                        "data_manager {} symbols not found: {}",
-                        market_type.as_str(),
-                        e
-                    ),
-                })?;
-            symbols.insert(market_type.clone(), ss);
         }
 
         let db =
@@ -94,7 +77,6 @@ impl TradeData {
         Ok(Self {
             market_types,
             trade_providers,
-            symbols: Arc::new(symbols),
             refresh_interval: Duration::from_secs(refresh_interval_secs),
             shutdown_token: CancellationToken::new(),
             accounts: Arc::new(accounts),
@@ -133,7 +115,6 @@ impl TradeData {
             .map_err(|e| PlatformError::DataManagerError {
                 message: format!("create account_balance table failed: {}", e),
             })?;
-
         Ok(())
     }
 
@@ -157,7 +138,7 @@ impl TradeData {
                 iceberg_qty TEXT NOT NULL,
                 create_time INTEGER NOT NULL,
                 update_time INTEGER NOT NULL,
-                UNIQUE(market_type, symbol, order_id)
+                UNIQUE(market_type, symbol, client_order_id)
             )
         "#;
         db.execute_update(query, &[])
@@ -165,7 +146,6 @@ impl TradeData {
                 message: format!("create orders table failed: {}", e),
             })?;
 
-        // 创建索引：按 market_type、symbol 和 update_time 查询（最近更新）
         let index = r#"
             CREATE INDEX IF NOT EXISTS idx_orders_market_type_symbol_update_time 
             ON orders(market_type, symbol, update_time DESC)
@@ -178,7 +158,6 @@ impl TradeData {
                 ),
             })?;
 
-        // 创建索引：按 market_type、order_status 和 update_time 查询
         let index = r#"
             CREATE INDEX IF NOT EXISTS idx_orders_market_type_status_update_time 
             ON orders(market_type, order_status, update_time DESC)
@@ -191,6 +170,17 @@ impl TradeData {
                 ),
             })?;
 
+        let index = r#"
+            CREATE INDEX IF NOT EXISTS idx_orders_market_type_order_id 
+            ON orders(market_type, symbol, order_id)
+        "#;
+        db.execute_update(index, &[])
+            .map_err(|e| PlatformError::DataManagerError {
+                message: format!(
+                    "create orders (market_type, symbol, order_id) index failed: {}",
+                    e
+                ),
+            })?;
         Ok(())
     }
 
@@ -217,7 +207,6 @@ impl TradeData {
                 message: format!("create user_trades table failed: {}", e),
             })?;
 
-        // 创建索引：按 market_type、symbol 和 order_id 查询（关联查询）
         let index = r#"
             CREATE INDEX IF NOT EXISTS idx_user_trades_market_type_order_id 
             ON user_trades(market_type, symbol, order_id)
@@ -230,7 +219,6 @@ impl TradeData {
                 ),
             })?;
 
-        // 创建索引：按 market_type、symbol 和 timestamp 查询（最近交易）
         let index = r#"
             CREATE INDEX IF NOT EXISTS idx_user_trades_market_type_symbol_timestamp 
             ON user_trades(market_type, symbol, timestamp DESC)
@@ -316,6 +304,7 @@ impl TradeData {
                 free = excluded.free,
                 locked = excluded.locked,
                 updated_at = excluded.updated_at
+            WHERE excluded.updated_at >= account_balance.updated_at
         "#,
             placeholders
         );
@@ -367,8 +356,8 @@ impl TradeData {
                 stop_price, iceberg_qty, create_time, update_time
             )
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-            ON CONFLICT(market_type, symbol, order_id) DO UPDATE SET
-                client_order_id = excluded.client_order_id,
+            ON CONFLICT(market_type, symbol, client_order_id) DO UPDATE SET
+                order_id = excluded.order_id,
                 order_side = excluded.order_side,
                 order_type = excluded.order_type,
                 order_status = excluded.order_status,
@@ -379,7 +368,9 @@ impl TradeData {
                 time_in_force = excluded.time_in_force,
                 stop_price = excluded.stop_price,
                 iceberg_qty = excluded.iceberg_qty,
+                create_time = excluded.create_time,
                 update_time = excluded.update_time
+            WHERE excluded.update_time >= orders.update_time
         "#;
 
         let params: Vec<String> = vec![
@@ -554,12 +545,12 @@ impl TradeData {
             })
     }
 
-    fn _get_order_by_id(
+    fn _get_order(
         db: Arc<SQLiteDB>,
         market_type: &MarketType,
         symbol: &str,
         order_id: &str,
-    ) -> Result<Vec<Order>> {
+    ) -> Result<Option<Order>> {
         let query = r#"
             SELECT symbol, order_id, client_order_id, order_side, order_type,
                    order_status, order_price, order_quantity, executed_qty,
@@ -577,11 +568,16 @@ impl TradeData {
                     message: format!("get orders by ids err: {}", e),
                 })?;
 
-        result
-            .into_struct()
-            .map_err(|e| PlatformError::DataManagerError {
-                message: format!("get_order_by_ids into err: {}", e),
-            })
+        let orders: Vec<Order> =
+            result
+                .into_struct()
+                .map_err(|e| PlatformError::DataManagerError {
+                    message: format!("get_order_by_ids into err: {}", e),
+                })?;
+        if orders.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(orders[0].clone()))
     }
 
     fn _get_open_orders(db: Arc<SQLiteDB>, market_type: &MarketType) -> Result<Vec<Order>> {
@@ -644,7 +640,7 @@ impl TradeData {
             })
     }
 
-    fn _get_user_trades_by_order_id(
+    fn _get_user_trades_by_order(
         db: Arc<SQLiteDB>,
         market_type: &MarketType,
         symbol: &str,
@@ -673,10 +669,38 @@ impl TradeData {
             })
     }
 
+    // 如果一个品种预期不会再交易，请从db中移除到冷存储中
+    fn _get_all_symbol(db: Arc<SQLiteDB>, market_type: &MarketType) -> Result<Vec<String>> {
+        let query = r#"
+            SELECT DISTINCT symbol
+            FROM orders
+            WHERE market_type = ?1
+        "#;
+        let market_type_str = market_type.as_str().to_string();
+        let params: Vec<&dyn rusqlite::ToSql> = vec![&market_type_str];
+
+        let result =
+            db.execute_query(&query, &params)
+                .map_err(|e| PlatformError::DataManagerError {
+                    message: format!("get all symbols err: {}", e),
+                })?;
+
+        let mut symbols = vec![];
+        for row in result.rows {
+            let symbol = row
+                .get_string("symbol")
+                .ok_or(PlatformError::DataManagerError {
+                    message: "column symbol not found".to_string(),
+                })?;
+            symbols.push(symbol);
+        }
+        Ok(symbols)
+    }
+
     async fn _fetch_api_data(
         market_type: &MarketType,
         trade_provider: Arc<dyn TradeProvider>,
-    ) -> Result<(Account, Vec<Order>, Vec<UserTrade>)> {
+    ) -> Result<(Account, Vec<Order>)> {
         let account = match trade_provider.get_account().await {
             Ok(acc) => acc,
             Err(e) => {
@@ -703,38 +727,8 @@ impl TradeData {
                 });
             }
         };
-        let order_ids: Vec<(String, String)> = orders
-            .iter()
-            .map(|o| (o.order_id.clone(), o.symbol.clone()))
-            .collect();
 
-        let mut trades: Vec<UserTrade> = vec![];
-        for (order_id, symbol) in order_ids {
-            let mut order_trades = match trade_provider
-                .get_user_trades(GetUserTradesRequest {
-                    symbol: symbol.clone(),
-                    order_id: Some(order_id.clone()),
-                    from_id: None,
-                    start_time: None,
-                    end_time: None,
-                    limit: None,
-                })
-                .await
-            {
-                Ok(trds) => trds,
-                Err(e) => {
-                    return Err(PlatformError::DataManagerError {
-                            message: format!(
-                                "get user trades by order_id from trade provider failed for market_type {:?}, order_id {}: {}",
-                                market_type, order_id, e
-                            ),
-                        });
-                }
-            };
-            trades.extend(order_trades.drain(..));
-        }
-
-        Ok((account, orders, trades))
+        Ok((account, orders))
     }
 
     async fn _fetch_all_orders(
@@ -781,7 +775,7 @@ impl TradeData {
         let mut trades = vec![];
         let mut cur_start_time = start_time;
         loop {
-            let mut batch = trade_provider
+            let mut batch: Vec<UserTrade> = trade_provider
                 .get_user_trades(GetUserTradesRequest {
                     symbol: symbol.clone(),
                     order_id: None,
@@ -808,6 +802,12 @@ impl TradeData {
     }
 
     pub async fn init(&self) -> Result<()> {
+        // 初始化数据库
+        Self::_create_api_sync_ts_table(self.db.clone())?;
+        Self::_create_account_balance_table(self.db.clone())?;
+        Self::_create_orders_table(self.db.clone())?;
+        Self::_create_user_trades_table(self.db.clone())?;
+
         for market_type in self.market_types.iter() {
             let trade_provider =
                 self.trade_providers
@@ -819,21 +819,23 @@ impl TradeData {
                         ),
                     })?;
 
-            // 初始化数据库
-            Self::_create_api_sync_ts_table(self.db.clone())?;
-            Self::_create_account_balance_table(self.db.clone())?;
-            Self::_create_orders_table(self.db.clone())?;
-            Self::_create_user_trades_table(self.db.clone())?;
-
-            // 初始化缓存
-            let (api_account, api_orders, api_trades) =
+            let (api_account, api_orders) =
                 Self::_fetch_api_data(market_type, trade_provider.clone()).await?;
-            self.update_account(market_type, api_account).await?;
+            Self::update_account_inner(
+                self.accounts.clone(),
+                self.db.clone(),
+                market_type,
+                api_account,
+            )
+            .await?;
             for order in api_orders {
-                self.update_order(market_type, order).await?;
-            }
-            for trade in api_trades {
-                self.update_user_trade(market_type, trade).await?;
+                Self::update_order_inner(
+                    self.open_order_stats.clone(),
+                    self.db.clone(),
+                    market_type,
+                    order,
+                )
+                .await?;
             }
 
             // 订阅/定期更新
@@ -934,11 +936,6 @@ impl TradeData {
             let refresh_interval = self.refresh_interval.clone();
             let trade_provider_clone = trade_provider.clone();
             let db = self.db.clone();
-            let symbols = self
-                .symbols
-                .get(&market_type_clone)
-                .unwrap_or(&vec![])
-                .clone();
             tokio::spawn(async move {
                 let mut interval_tick = tokio::time::interval(refresh_interval);
                 loop {
@@ -949,63 +946,8 @@ impl TradeData {
                         _ = interval_tick.tick() => {
                             log::info!("periodic refresh for market_type {:?}", market_type_clone);
 
-                            // 1. 获取当前缓存所有在途订单及其成交进行更新
-                            let open_orders = {
-                                if let Some(stat_lock) = open_order_stats.get(&market_type_clone) {
-                                    let stat_guard = stat_lock.read().await;
-                                    stat_guard.orders.values().cloned().collect::<Vec<Order>>()
-                                } else {
-                                    vec![]
-                                }
-                            };
-                            for order in open_orders {
-                                match trade_provider_clone
-                                    .get_order(GetOrderRequest {
-                                        symbol: order.symbol.clone(),
-                                        order_id: Some(order.order_id.clone()),
-                                        orig_client_order_id: None,
-                                    })
-                                    .await {
-                                    Ok(order) => {
-                                        let _ = Self::update_order_inner(
-                                            open_order_stats.clone(),
-                                            db.clone(),
-                                            &market_type_clone,
-                                            order,
-                                        ).await;
-                                    },
-                                    Err(_) => {
-                                        log::error!("periodic fetch order failed for market_type {:?}, order_id {}", market_type_clone, order.order_id);
-                                    }
-                                }
-                                match trade_provider_clone
-                                    .get_user_trades(GetUserTradesRequest {
-                                        symbol: order.symbol.clone(),
-                                        order_id: Some(order.order_id.clone()),
-                                        from_id: None,
-                                        start_time: None,
-                                        end_time: None,
-                                        limit: None,
-                                    })
-                                    .await {
-                                    Ok(trades) => {
-                                        for trade in trades {
-                                            let _ = Self::update_user_trade_inner(
-                                                open_order_stats.clone(),
-                                                db.clone(),
-                                                &market_type_clone,
-                                                trade,
-                                            ).await;
-                                        }
-                                    },
-                                    Err(_) => {
-                                        log::error!("periodic fetch user trades failed for market_type {:?}, order_id {}", market_type_clone, order.order_id);
-                                    }
-                                }
-                            }
-
-                            // 2. 获取在途订单、成交、账户
-                            let (account , api_orders, api_trades) =
+                            // 获取在途订单、账户
+                            let (account , api_orders) =
                                 match Self::_fetch_api_data(&market_type_clone, trade_provider_clone.clone()).await {
                                     Ok(data) => data,
                                     Err(e) => {
@@ -1027,28 +969,30 @@ impl TradeData {
                                     order,
                                 ).await;
                             }
-                            for trade in api_trades {
-                                let _ = Self::update_user_trade_inner(
-                                    open_order_stats.clone(),
-                                    db.clone(),
-                                    &market_type_clone,
-                                    trade,
-                                ).await;
-                            }
 
-                            // 3. 从上一次更新的时间位置，获取全量的order/trade并更新。注意必须逐步成功，失败就跳过
+                            // 从上一次更新的时间位置，获取全量的order/trade并更新
+                            let symbols = match Self::_get_all_symbol(db.clone(), &market_type_clone) {
+                                Ok(symbols) => symbols,
+                                Err(e) => {
+                                    log::error!("get all symbols failed for market_type {:?}: {}", market_type_clone, e);
+                                    continue;
+                                }
+                            };
+
                             let current_ts = time::get_current_milli_timestamp() - 60 * 1000;
                             let mut last_sync_ts = match Self::_get_last_sync_ts(db.clone(), &market_type_clone) {
-                                Ok(ts) => ts.unwrap_or(current_ts - 24 * 60 * 60 * 1000 + 1), // 从未同步过，获取最近一天的订单
+                                Ok(ts) => ts.unwrap_or(current_ts - 24 * 60 * 60 * 1000 + 1), // 从未同步过，获取最近一天
                                 Err(e) => {
                                     log::error!("get last sync ts failed for market_type {:?}: {}", market_type_clone, e);
                                     continue;
                                 }
                             };
+
                             if current_ts - last_sync_ts >= 24 * 60 * 60 * 1000 {
                                 log::warn!("large time gap detected for market_type {:?}, last_sync_ts {}, current_ts {}. Limiting to 1 day interval", market_type_clone, last_sync_ts, current_ts);
                                 last_sync_ts = current_ts - 24 * 60 * 60 * 1000 + 1;
                             }
+
                             let mut orders = Vec::new();
                             let mut trades = Vec::new();
                             let mut get_order_trade_succ = true;
@@ -1088,19 +1032,22 @@ impl TradeData {
                                 continue;
                             }
                             for order in orders {
-                                let _ = Self::_update_order(
+                                let _ = Self::update_order_inner(
+                                    open_order_stats.clone(),
                                     db.clone(),
                                     &market_type_clone,
-                                    &order,
+                                    order,
                                 );
                             }
                             for trade in trades {
-                                let _ = Self::_update_user_trade(
+                                let _ = Self::update_user_trade_inner(
+                                    open_order_stats.clone(),
                                     db.clone(),
                                     &market_type_clone,
-                                    &trade,
+                                    trade,
                                 );
                             }
+
                             // 更新last_sync_ts
                             let _ = Self::_update_last_sync_ts(
                                 db.clone(),
@@ -1121,6 +1068,8 @@ impl TradeData {
         market_type: &MarketType,
         order: Order,
     ) -> Result<()> {
+        Self::_update_order(db.clone(), market_type, &order)?;
+
         let stat_lock =
             open_order_stats
                 .get(market_type)
@@ -1133,20 +1082,15 @@ impl TradeData {
 
         let mut stat_guard = stat_lock.write().await;
 
-        // 如果订单状态发生了更新，更新缓存
         if stat_guard.orders.contains_key(&order.order_id)
             && stat_guard.orders[&order.order_id].update_time > order.update_time
         {
-            log::info!(
-                "skip updating order {:?} as existing one is newer",
-                order.order_id
-            );
-            return Ok(());
+            // pass
+        } else {
+            stat_guard
+                .orders
+                .insert(order.order_id.clone(), order.clone());
         }
-
-        stat_guard
-            .orders
-            .insert(order.order_id.clone(), order.clone());
 
         // 确认订单状态，如果订单已完成或取消，则从缓存中移除
         if order.order_status != OrderStatus::New
@@ -1154,60 +1098,19 @@ impl TradeData {
             && order.order_status != OrderStatus::PartiallyFilled
         {
             stat_guard.orders.remove(&order.order_id);
-            let trade_ids = stat_guard.order_trade_ids.remove(&order.order_id);
-            if let Some(trade_ids) = trade_ids {
-                for trade_id in trade_ids {
-                    stat_guard.trades.remove(&trade_id);
-                }
-            }
         }
-
-        // 更新数据库
-        Self::_update_order(db.clone(), market_type, &order)?;
 
         Ok(())
     }
 
+    // 当前缓存状态不考虑trade，仅做透传
     async fn update_user_trade_inner(
-        open_order_stats: Arc<HashMap<MarketType, Arc<RwLock<OpenOrderTradeStat>>>>,
+        _open_order_stats: Arc<HashMap<MarketType, Arc<RwLock<OpenOrderTradeStat>>>>,
         db: Arc<SQLiteDB>,
         market_type: &MarketType,
         trade: UserTrade,
     ) -> Result<()> {
-        let stat_lock =
-            open_order_stats
-                .get(market_type)
-                .ok_or(PlatformError::DataManagerError {
-                    message: format!(
-                        "open_order_stats lock not found for market_type {:?}",
-                        market_type
-                    ),
-                })?;
-
-        let mut stat_guard = stat_lock.write().await;
-
-        // 如果交易已存在，跳过
-        if stat_guard.trades.contains_key(&trade.trade_id) {
-            log::info!(
-                "skip updating trade {:?} as it already exists",
-                trade.trade_id
-            );
-            return Ok(());
-        }
-
-        if stat_guard.orders.get(&trade.order_id).is_some() {
-            stat_guard
-                .trades
-                .insert(trade.trade_id.clone(), trade.clone());
-            stat_guard
-                .order_trade_ids
-                .entry(trade.order_id.clone())
-                .or_insert(vec![])
-                .push(trade.trade_id.clone());
-        }
-        Self::_update_user_trade(db.clone(), market_type, &trade)?;
-
-        Ok(())
+        Self::_update_user_trade(db.clone(), market_type, &trade)
     }
 
     async fn update_account_inner(
@@ -1216,6 +1119,8 @@ impl TradeData {
         market_type: &MarketType,
         account: Account,
     ) -> Result<()> {
+        Self::_update_account(db.clone(), market_type, &account)?;
+
         let account_lock = accounts
             .get(market_type)
             .ok_or(PlatformError::DataManagerError {
@@ -1224,19 +1129,14 @@ impl TradeData {
 
         let mut account_guard = account_lock.write().await;
 
-        if let Some(account_guard) = account_guard.as_ref() {
-            if account_guard.timestamp > account.timestamp {
-                log::info!(
-                    "skip updating account for market_type {:?} as existing one is newer",
-                    market_type
-                );
-                return Ok(());
-            }
+        if let Some(account_guard) = account_guard.as_ref()
+            && account_guard.timestamp > account.timestamp
+        {
+            // pass
+        } else {
+            *account_guard = Some(account.clone());
         }
-        *account_guard = Some(account.clone());
 
-        // 更新数据库
-        Self::_update_account(db.clone(), market_type, &account)?;
         Ok(())
     }
 
@@ -1246,6 +1146,8 @@ impl TradeData {
         market_type: &MarketType,
         account_update: AccountUpdate,
     ) -> Result<()> {
+        Self::_update_account_update(db.clone(), market_type, &account_update)?;
+
         let account_lock = accounts
             .get(market_type)
             .ok_or(PlatformError::DataManagerError {
@@ -1256,31 +1158,24 @@ impl TradeData {
 
         if let Some(account) = &mut *account_guard {
             if account.timestamp > account_update.timestamp {
-                log::info!(
-                    "skip updating account update for market_type {:?} as existing one is newer",
-                    market_type
-                );
-                return Ok(());
-            }
-
-            // 更新缓存
-            for updated_balance in &account_update.balances {
-                if let Some(balance) = account
-                    .balances
-                    .iter_mut()
-                    .find(|b| b.asset == updated_balance.asset)
-                {
-                    balance.free = updated_balance.free;
-                    balance.locked = updated_balance.locked;
-                } else {
-                    account.balances.push(updated_balance.clone());
+                Ok(())
+            } else {
+                for updated_balance in &account_update.balances {
+                    if let Some(balance) = account
+                        .balances
+                        .iter_mut()
+                        .find(|b| b.asset == updated_balance.asset)
+                    {
+                        balance.free = updated_balance.free;
+                        balance.locked = updated_balance.locked;
+                    } else {
+                        account.balances.push(updated_balance.clone());
+                    }
                 }
-            }
-            account.timestamp = account_update.timestamp;
+                account.timestamp = account_update.timestamp;
 
-            // 更新数据库
-            Self::_update_account_update(db.clone(), market_type, &account_update)?;
-            Ok(())
+                Ok(())
+            }
         } else {
             return Err(PlatformError::DataManagerError {
                 message: format!("account not initialized for market_type {:?}", market_type),
@@ -1293,45 +1188,6 @@ impl TradeData {
 impl TradeDataManager for TradeData {
     async fn init(&self) -> Result<()> {
         self.init().await
-    }
-
-    async fn update_order(&self, market_type: &MarketType, order: Order) -> Result<()> {
-        Self::update_order_inner(
-            self.open_order_stats.clone(),
-            self.db.clone(),
-            market_type,
-            order,
-        )
-        .await
-    }
-
-    async fn update_user_trade(&self, market_type: &MarketType, trade: UserTrade) -> Result<()> {
-        Self::update_user_trade_inner(
-            self.open_order_stats.clone(),
-            self.db.clone(),
-            market_type,
-            trade,
-        )
-        .await
-    }
-
-    async fn update_account(&self, market_type: &MarketType, account: Account) -> Result<()> {
-        Self::update_account_inner(self.accounts.clone(), self.db.clone(), market_type, account)
-            .await
-    }
-
-    async fn update_account_update(
-        &self,
-        market_type: &MarketType,
-        account_update: AccountUpdate,
-    ) -> Result<()> {
-        Self::update_account_update_inner(
-            self.accounts.clone(),
-            self.db.clone(),
-            market_type,
-            account_update,
-        )
-        .await
     }
 
     async fn get_account(&self, market_type: &MarketType) -> Result<Option<Account>> {
@@ -1362,58 +1218,53 @@ impl TradeDataManager for TradeData {
         Ok(orders)
     }
 
-    async fn get_user_trades(&self, market_type: &MarketType) -> Result<Vec<UserTrade>> {
-        let stat_lock =
-            self.open_order_stats
-                .get(market_type)
-                .ok_or(PlatformError::DataManagerError {
-                    message: format!(
-                        "open_order_stats lock not found for market_type {:?}",
-                        market_type
-                    ),
-                })?;
-
-        let stat_guard = stat_lock.read().await;
-        let trades: Vec<UserTrade> = stat_guard.trades.values().cloned().collect();
-        Ok(trades)
-    }
-
     async fn get_user_trades_by_order(
         &self,
         market_type: &MarketType,
+        symbol: &str,
         order_id: &str,
     ) -> Result<Vec<UserTrade>> {
-        let stat_lock =
-            self.open_order_stats
-                .get(market_type)
-                .ok_or(PlatformError::DataManagerError {
-                    message: format!(
-                        "open_order_stats lock not found for market_type {:?}",
-                        market_type
-                    ),
-                })?;
+        Self::_get_user_trades_by_order(self.db.clone(), market_type, symbol, order_id)
+    }
 
-        let stat_guard = stat_lock.read().await;
+    async fn get_orders(
+        &self,
+        market_type: &MarketType,
+        symbol: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<Order>> {
+        Self::_get_orders(self.db.clone(), market_type, symbol, limit)
+    }
 
-        let trade_ids =
-            stat_guard
-                .order_trade_ids
-                .get(order_id)
-                .ok_or(PlatformError::DataManagerError {
-                    message: format!("no trades found for order_id {}", order_id),
-                })?;
+    async fn get_user_trades(
+        &self,
+        market_type: &MarketType,
+        symbol: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<UserTrade>> {
+        Self::_get_user_trades(self.db.clone(), market_type, symbol, limit)
+    }
 
-        let mut trades = Vec::new();
-        for trade_id in trade_ids {
-            if let Some(trade) = stat_guard.trades.get(trade_id) {
-                trades.push(trade.clone());
-            }
-        }
+    async fn get_order(
+        &self,
+        market_type: &MarketType,
+        symbol: &str,
+        order_id: &str,
+    ) -> Result<Option<Order>> {
+        Self::_get_order(self.db.clone(), market_type, symbol, order_id)
+    }
 
-        Ok(trades)
+    async fn get_last_sync_ts(&self, market_type: &MarketType) -> Result<Option<u64>> {
+        Self::_get_last_sync_ts(self.db.clone(), market_type)
     }
 
     async fn place_order(&self, market_type: &MarketType, req: PlaceOrderRequest) -> Result<Order> {
+        Self::_update_order(
+            self.db.clone(),
+            market_type,
+            &Order::new_order_from_place_order_req(req.clone()),
+        )?;
+
         let trade_provider =
             self.trade_providers
                 .get(market_type)
@@ -1437,54 +1288,6 @@ impl TradeDataManager for TradeData {
                     ),
                 })?;
         trade_provider.cancel_order(req).await
-    }
-
-    async fn get_account_from_db(&self, market_type: &MarketType) -> Result<Option<Account>> {
-        Self::_get_account(self.db.clone(), market_type)
-    }
-
-    async fn get_orders_from_db(
-        &self,
-        market_type: &MarketType,
-        symbol: &str,
-        limit: Option<usize>,
-    ) -> Result<Vec<Order>> {
-        Self::_get_orders(self.db.clone(), market_type, symbol, limit)
-    }
-
-    async fn get_user_trades_from_db(
-        &self,
-        market_type: &MarketType,
-        symbol: &str,
-        limit: Option<usize>,
-    ) -> Result<Vec<UserTrade>> {
-        Self::_get_user_trades(self.db.clone(), market_type, symbol, limit)
-    }
-
-    async fn get_last_sync_ts_from_db(&self, market_type: &MarketType) -> Result<Option<u64>> {
-        Self::_get_last_sync_ts(self.db.clone(), market_type)
-    }
-
-    async fn get_order_by_id_from_db(
-        &self,
-        market_type: &MarketType,
-        symbol: &str,
-        order_id: &str,
-    ) -> Result<Vec<Order>> {
-        Self::_get_order_by_id(self.db.clone(), market_type, symbol, order_id)
-    }
-
-    async fn get_open_orders_from_db(&self, market_type: &MarketType) -> Result<Vec<Order>> {
-        Self::_get_open_orders(self.db.clone(), market_type)
-    }
-
-    async fn get_user_trades_by_order_id_from_db(
-        &self,
-        market_type: &MarketType,
-        symbol: &str,
-        order_id: &str,
-    ) -> Result<Vec<UserTrade>> {
-        Self::_get_user_trades_by_order_id(self.db.clone(), market_type, symbol, order_id)
     }
 }
 

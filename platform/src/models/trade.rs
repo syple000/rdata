@@ -1,4 +1,4 @@
-use crate::models::{OrderSide, OrderStatus, OrderType, TimeInForce};
+use crate::models::{OrderSide, OrderStatus, OrderType, PlaceOrderRequest, TimeInForce};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,28 @@ pub struct Order {
     pub iceberg_qty: Decimal,
     pub create_time: u64,
     pub update_time: u64,
+}
+
+impl Order {
+    pub fn new_order_from_place_order_req(req: PlaceOrderRequest) -> Self {
+        Order {
+            symbol: req.symbol,
+            order_id: "".to_string(),
+            client_order_id: req.new_client_order_id.unwrap_or_else(|| "".to_string()),
+            order_side: req.side,
+            order_type: req.r#type,
+            order_status: OrderStatus::New,
+            order_price: req.price.unwrap_or_else(|| Decimal::new(0, 0)),
+            order_quantity: req.quantity.unwrap_or_else(|| Decimal::new(0, 0)),
+            executed_qty: Decimal::new(0, 0),
+            cummulative_quote_qty: Decimal::new(0, 0),
+            time_in_force: req.time_in_force.unwrap_or(TimeInForce::Gtc),
+            stop_price: req.stop_price.unwrap_or_else(|| Decimal::new(0, 0)),
+            iceberg_qty: req.iceberg_qty.unwrap_or_else(|| Decimal::new(0, 0)),
+            create_time: 0,
+            update_time: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

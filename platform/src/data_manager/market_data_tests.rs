@@ -68,8 +68,7 @@ async fn test_market_data_initialization() {
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
 
     // Initialize MarketData
-    let market_data =
-        MarketData::new(config.clone(), Arc::new(market_providers), Arc::new(vec![])).unwrap();
+    let market_data = MarketData::new(config.clone(), Arc::new(market_providers)).unwrap();
     let market_data: Arc<dyn MarketDataManager> = Arc::new(market_data);
 
     info!("MarketData initialized successfully.");
@@ -270,8 +269,7 @@ async fn test_market_data_streaming_updates() {
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
 
     // Initialize MarketData
-    let market_data =
-        MarketData::new(config.clone(), Arc::new(market_providers), Arc::new(vec![])).unwrap();
+    let market_data = MarketData::new(config.clone(), Arc::new(market_providers)).unwrap();
     let market_data: Arc<dyn MarketDataManager> = Arc::new(market_data);
 
     info!("MarketData initialized successfully.");
@@ -529,8 +527,7 @@ async fn test_market_data_cache_capacity() {
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
 
     // Initialize MarketData
-    let market_data =
-        MarketData::new(config.clone(), Arc::new(market_providers), Arc::new(vec![])).unwrap();
+    let market_data = MarketData::new(config.clone(), Arc::new(market_providers)).unwrap();
     let market_data: Arc<dyn MarketDataManager> = Arc::new(market_data);
 
     info!("MarketData initialized with cache_capacity=10.");

@@ -9,10 +9,7 @@ use async_trait::async_trait;
 use log::info;
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -58,62 +55,16 @@ impl<T: Clone> Cache<T> {
     fn get(&self, limit: Option<usize>) -> Vec<T> {
         self.data
             .values()
+            .rev()
             .take(limit.unwrap_or(self.data.len()))
             .cloned()
             .collect()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MarketSignalType {
-    Kline,
-    Trade,
-    Depth,
-    Ticker,
-}
-
-pub struct MarketSignal {
-    kline: Arc<AtomicBool>,
-    trade: Arc<AtomicBool>,
-    depth: Arc<AtomicBool>,
-    ticker: Arc<AtomicBool>,
-}
-
-impl MarketSignal {
-    pub fn new() -> Self {
-        Self {
-            kline: Arc::new(AtomicBool::new(false)),
-            trade: Arc::new(AtomicBool::new(false)),
-            depth: Arc::new(AtomicBool::new(false)),
-            ticker: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    pub fn check_and_reset(&self, signal_type: MarketSignalType) -> bool {
-        let signal = match signal_type {
-            MarketSignalType::Kline => &self.kline,
-            MarketSignalType::Trade => &self.trade,
-            MarketSignalType::Depth => &self.depth,
-            MarketSignalType::Ticker => &self.ticker,
-        };
-        signal.swap(false, Ordering::AcqRel)
-    }
-
-    pub fn set(&self, signal_type: MarketSignalType) {
-        let signal = match signal_type {
-            MarketSignalType::Kline => &self.kline,
-            MarketSignalType::Trade => &self.trade,
-            MarketSignalType::Depth => &self.depth,
-            MarketSignalType::Ticker => &self.ticker,
-        };
-        signal.store(true, Ordering::Release);
-    }
-}
-
 pub struct MarketData {
     market_types: Arc<Vec<MarketType>>,
     market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
-    market_signals: Arc<Vec<Arc<MarketSignal>>>,
     klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<Cache<KlineData>>>>>,
     trades: Arc<HashMap<(MarketType, String), Arc<RwLock<Cache<Trade>>>>>,
     depths: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<DepthData>>>>>,
@@ -125,7 +76,6 @@ impl MarketData {
     pub fn new(
         config: Config,
         market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
-        market_signals: Arc<Vec<Arc<MarketSignal>>>,
     ) -> Result<Self> {
         let market_types: Arc<Vec<MarketType>> =
             Arc::new(config.get("data_manager.market_types").map_err(|e| {
@@ -200,7 +150,6 @@ impl MarketData {
         Ok(Self {
             market_types,
             market_providers,
-            market_signals,
             klines: Arc::new(klines),
             trades: Arc::new(trades),
             depths: Arc::new(depths),
@@ -209,7 +158,7 @@ impl MarketData {
         })
     }
 
-    pub async fn init(&self) -> Result<()> {
+    async fn init(&self) -> Result<()> {
         for market_type in self.market_types.iter() {
             let market_provider =
                 self.market_providers
@@ -230,7 +179,6 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let klines = self.klines.clone();
             let market_type_clone = market_type.clone();
-            let market_signals = self.market_signals.clone();
             let mut kline_sub = market_provider.subscribe_kline();
             tokio::spawn(async move {
                 loop {
@@ -242,9 +190,6 @@ impl MarketData {
                             match kline {
                                 Ok(kline) => {
                                     let _ = Self::add_kline_inner(klines.clone(), &market_type_clone, kline).await;
-                                    for market_signal in market_signals.iter() {
-                                        market_signal.set(MarketSignalType::Kline);
-                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -259,7 +204,6 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let trades = self.trades.clone();
             let market_type_clone = market_type.clone();
-            let market_signals = self.market_signals.clone();
             let mut trade_sub = market_provider.subscribe_trade();
             tokio::spawn(async move {
                 loop {
@@ -271,9 +215,6 @@ impl MarketData {
                             match trade {
                                 Ok(trade) => {
                                     let _ = Self::add_trade_inner(trades.clone(), &market_type_clone, trade).await;
-                                    for market_signal in market_signals.iter() {
-                                        market_signal.set(MarketSignalType::Trade);
-                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -288,7 +229,6 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let depths = self.depths.clone();
             let market_type_clone = market_type.clone();
-            let market_signals = self.market_signals.clone();
             let mut depth_sub = market_provider.subscribe_depth();
             tokio::spawn(async move {
                 loop {
@@ -300,9 +240,6 @@ impl MarketData {
                             match depth {
                                 Ok(depth) => {
                                     let _ = Self::add_depth_inner(depths.clone(), &market_type_clone, depth).await;
-                                    for market_signal in market_signals.iter() {
-                                        market_signal.set(MarketSignalType::Depth);
-                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -317,7 +254,6 @@ impl MarketData {
             let shutdown_token = self.shutdown_token.clone();
             let tickers = self.tickers.clone();
             let market_type_clone = market_type.clone();
-            let market_signals = self.market_signals.clone();
             let mut ticker_sub = market_provider.subscribe_ticker();
             tokio::spawn(async move {
                 loop {
@@ -329,9 +265,6 @@ impl MarketData {
                             match ticker {
                                 Ok(ticker) => {
                                     let _ = Self::add_ticker_inner(tickers.clone(), &market_type_clone, ticker).await;
-                                    for market_signal in market_signals.iter() {
-                                        market_signal.set(MarketSignalType::Ticker);
-                                    }
                                 }
                                 Err(_e) => {
                                     // pass，预期不应该出现该错误
@@ -388,7 +321,7 @@ impl MarketData {
                     {
                         let capacity = cache.read().await.get_capacity();
 
-                        match market_provider
+                        let klines: Vec<KlineData> = market_provider
                             .get_klines(crate::models::GetKlinesRequest {
                                 symbol: symbol.clone(),
                                 interval: interval.clone(),
@@ -397,31 +330,12 @@ impl MarketData {
                                 limit: Some(capacity as u32),
                             })
                             .await
-                        {
-                            Ok(klines) => {
-                                for kline in klines {
-                                    match self.add_kline(market_type, kline).await {
-                                        Ok(_) => {}
-                                        Err(e) => {
-                                            log::error!(
-                                                "Failed to add kline data for {:?} {} {:?}: {}",
-                                                market_type,
-                                                symbol,
-                                                interval,
-                                                e
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Failed to initialize kline data for {:?} {}: {}",
-                                    market_type,
-                                    symbol,
-                                    e
-                                );
-                            }
+                            .map_err(|e| PlatformError::DataManagerError {
+                                message: format!("init data from api, fetch klines err: {}", e),
+                            })?;
+                        for kline in klines {
+                            let _ = Self::add_kline_inner(self.klines.clone(), market_type, kline)
+                                .await;
                         }
                     }
                 }
@@ -431,7 +345,7 @@ impl MarketData {
                 if let Some(cache) = self.trades.get(&(market_type.clone(), symbol.clone())) {
                     let capacity = cache.read().await.get_capacity();
 
-                    match market_provider
+                    let trades: Vec<Trade> = market_provider
                         .get_trades(crate::models::GetTradesRequest {
                             symbol: symbol.clone(),
                             from_id: None,
@@ -440,96 +354,50 @@ impl MarketData {
                             limit: Some(capacity as u32),
                         })
                         .await
-                    {
-                        Ok(trades) => {
-                            for trade in trades {
-                                match self.add_trade(market_type, trade).await {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        log::error!(
-                                            "Failed to add trade data for {:?} {}: {}",
-                                            market_type,
-                                            symbol,
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "Failed to initialize trade data for {:?} {}: {}",
-                                market_type,
-                                symbol,
-                                e
-                            );
-                        }
+                        .map_err(|e| PlatformError::DataManagerError {
+                            message: format!("init data from api, fetch trades err: {}", e),
+                        })?;
+
+                    for trade in trades {
+                        let _ =
+                            Self::add_trade_inner(self.trades.clone(), market_type, trade).await;
                     }
                 }
 
                 // 初始化depth数据（获取最新的）
                 info!("Initializing depth data for {:?} {}", market_type, symbol);
-                match market_provider
+                let depth = market_provider
                     .get_depth(crate::models::GetDepthRequest {
                         symbol: symbol.clone(),
                         limit: None,
                     })
                     .await
-                {
-                    Ok(depth) => match self.add_depth(market_type, depth).await {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::error!(
-                                "Failed to add depth data for {:?} {}: {}",
-                                market_type,
-                                symbol,
-                                e
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        log::error!(
-                            "Failed to initialize depth data for {:?} {}: {}",
-                            market_type,
-                            symbol,
-                            e
-                        );
-                    }
-                }
+                    .map_err(|e| PlatformError::DataManagerError {
+                        message: format!("init data from api, fetch depth err: {}", e),
+                    })?;
+                let _ = Self::add_depth_inner(self.depths.clone(), market_type, depth).await;
 
                 // 初始化ticker数据（获取最新的）
                 info!("Initializing ticker data for {:?} {}", market_type, symbol);
-                match market_provider
+                let tickers: Vec<Ticker24hr> = market_provider
                     .get_ticker_24hr(crate::models::GetTicker24hrRequest {
                         symbol: Some(symbol.clone()),
                         symbols: None,
                     })
                     .await
-                {
-                    Ok(tickers) => {
-                        if let Some(ticker) = tickers.into_iter().next() {
-                            match self.add_ticker(market_type, ticker).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    log::error!(
-                                        "Failed to add ticker data for {:?} {}: {}",
-                                        market_type,
-                                        symbol,
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "Failed to initialize ticker data for {:?} {}: {}",
-                            market_type,
-                            symbol,
-                            e
-                        );
-                    }
+                    .map_err(|e| PlatformError::DataManagerError {
+                        message: format!("init data from api, fetch ticker err: {}", e),
+                    })?;
+                if tickers.is_empty() {
+                    return Err(PlatformError::DataManagerError {
+                        message: format!(
+                            "init data from api, fetch ticker got empty for {:?} {}",
+                            market_type, symbol
+                        ),
+                    });
                 }
+                let ticker = tickers.first().unwrap().clone();
+                let _ = Self::add_ticker_inner(self.tickers.clone(), market_type, ticker).await;
             }
         }
 
@@ -592,10 +460,6 @@ impl MarketData {
         }
     }
 
-    pub async fn add_ticker(&self, market_type: &MarketType, ticker: Ticker24hr) -> Result<()> {
-        Self::add_ticker_inner(self.tickers.clone(), market_type, ticker).await
-    }
-
     async fn add_ticker_inner(
         tickers: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<Ticker24hr>>>>>,
         market_type: &MarketType,
@@ -625,14 +489,6 @@ impl MarketDataManager for MarketData {
         self.init().await
     }
 
-    async fn add_kline(
-        &self,
-        market_type: &MarketType,
-        kline: KlineData,
-    ) -> Result<Option<KlineData>> {
-        Self::add_kline_inner(self.klines.clone(), market_type, kline).await
-    }
-
     async fn get_klines(
         &self,
         market_type: &MarketType,
@@ -655,10 +511,6 @@ impl MarketDataManager for MarketData {
         })
     }
 
-    async fn add_trade(&self, market_type: &MarketType, trade: Trade) -> Result<Option<Trade>> {
-        Self::add_trade_inner(self.trades.clone(), market_type, trade).await
-    }
-
     async fn get_trades(
         &self,
         market_type: &MarketType,
@@ -674,10 +526,6 @@ impl MarketDataManager for MarketData {
         })
     }
 
-    async fn add_depth(&self, market_type: &MarketType, depth: DepthData) -> Result<()> {
-        Self::add_depth_inner(self.depths.clone(), market_type, depth).await
-    }
-
     async fn get_depth(
         &self,
         market_type: &MarketType,
@@ -690,10 +538,6 @@ impl MarketDataManager for MarketData {
         Err(PlatformError::DataManagerError {
             message: format!("Depth cache not found for: {:?}", (market_type, symbol)),
         })
-    }
-
-    async fn add_ticker(&self, market_type: &MarketType, ticker: Ticker24hr) -> Result<()> {
-        self.add_ticker(market_type, ticker).await
     }
 
     async fn get_ticker(

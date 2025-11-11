@@ -252,7 +252,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     dump(&open_orders_from_api, "trade_data_open_orders.json").unwrap();
 
     let trades_from_cache = trade_data
-        .get_user_trades(&MarketType::BinanceSpot)
+        .get_open_user_trades(&MarketType::BinanceSpot)
         .await
         .unwrap();
     assert!(trades_from_cache.len() == 0);
