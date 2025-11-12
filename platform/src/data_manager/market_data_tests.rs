@@ -23,7 +23,7 @@ async fn test_market_data_initialization() {
         "data_manager": {
             "market_types": ["binance_spot"],
             "binance_spot": {
-                "cache_capacity": 100,
+                "cache_capacity": 100
             }
         },
         "binance": {
@@ -128,7 +128,7 @@ async fn test_market_data_initialization() {
         .await
         .unwrap();
     assert!(klines_btc_1m.len() == 100);
-    let open_times: Vec<u64> = klines_btc_1m[95..99].iter().map(|e| e.open_time).collect();
+    let open_times: Vec<u64> = klines_btc_1m[95..=99].iter().map(|e| e.open_time).collect();
     assert!(open_times.contains(&old_klines_btc_1m[0].open_time));
     let mut pre_open_time = None;
     klines_btc_1m.iter().for_each(|kline| {
@@ -150,7 +150,7 @@ async fn test_market_data_initialization() {
         .await
         .unwrap();
     assert!(klines_eth_5m.len() == 100);
-    let open_times: Vec<u64> = klines_eth_5m[95..99].iter().map(|e| e.open_time).collect();
+    let open_times: Vec<u64> = klines_eth_5m[95..=99].iter().map(|e| e.open_time).collect();
     assert!(open_times.contains(&old_klines_eth_5m[0].open_time));
     let mut pre_open_time = None;
     klines_eth_5m.iter().for_each(|kline| {

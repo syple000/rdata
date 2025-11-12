@@ -55,8 +55,7 @@ impl<T: Clone> Cache<T> {
     fn get(&self, limit: Option<usize>) -> Vec<T> {
         self.data
             .values()
-            .rev()
-            .take(limit.unwrap_or(self.data.len()))
+            .skip(self.data.len() - limit.unwrap_or(self.data.len()))
             .cloned()
             .collect()
     }
