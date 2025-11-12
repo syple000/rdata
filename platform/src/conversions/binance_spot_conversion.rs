@@ -444,7 +444,7 @@ impl From<GetOrderRequest> for ex_requests::GetOrderRequest {
         ex_requests::GetOrderRequest {
             symbol: value.symbol,
             order_id: value.order_id.and_then(|id| id.parse().ok()),
-            orig_client_order_id: value.orig_client_order_id,
+            orig_client_order_id: value.client_order_id,
         }
     }
 }

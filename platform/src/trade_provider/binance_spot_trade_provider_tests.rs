@@ -105,7 +105,7 @@ async fn test_binance_spot_trade_provider() {
         .get_order(GetOrderRequest {
             symbol: order.symbol.to_string(),
             order_id: Some(order.order_id.to_string()),
-            orig_client_order_id: None,
+            client_order_id: None,
         })
         .await
         .unwrap();
@@ -139,7 +139,7 @@ async fn test_binance_spot_trade_provider() {
         .get_order(GetOrderRequest {
             symbol: order.symbol.to_string(),
             order_id: Some(order.order_id.to_string()),
-            orig_client_order_id: None,
+            client_order_id: None,
         })
         .await
         .unwrap();
@@ -157,7 +157,7 @@ async fn test_binance_spot_trade_provider() {
         .get_order(GetOrderRequest {
             symbol: order.symbol.to_string(),
             order_id: Some(order.order_id.to_string()),
-            orig_client_order_id: None,
+            client_order_id: None,
         })
         .await
         .unwrap();
@@ -186,7 +186,7 @@ async fn test_binance_spot_trade_provider() {
         .get_order(GetOrderRequest {
             symbol: order.symbol.to_string(),
             order_id: Some(order.order_id.to_string()),
-            orig_client_order_id: None,
+            client_order_id: None,
         })
         .await
         .unwrap();

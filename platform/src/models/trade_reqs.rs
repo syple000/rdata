@@ -24,7 +24,7 @@ pub struct CancelOrderRequest {
 pub struct GetOrderRequest {
     pub symbol: String,
     pub order_id: Option<String>,
-    pub orig_client_order_id: Option<String>,
+    pub client_order_id: Option<String>,
 }
 
 pub struct GetOpenOrdersRequest {
