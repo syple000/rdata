@@ -22,19 +22,22 @@ pub struct Order {
 }
 
 impl Order {
-    pub fn new_order_from_place_order_req(req: PlaceOrderRequest) -> Self {
+    pub fn new_order_from_place_order_req(req: &PlaceOrderRequest) -> Self {
         Order {
-            symbol: req.symbol,
+            symbol: req.symbol.clone(),
             order_id: "".to_string(),
-            client_order_id: req.new_client_order_id.unwrap_or_else(|| "".to_string()),
-            order_side: req.side,
-            order_type: req.r#type,
+            client_order_id: req
+                .new_client_order_id
+                .clone()
+                .unwrap_or_else(|| "".to_string()),
+            order_side: req.side.clone(),
+            order_type: req.r#type.clone(),
             order_status: OrderStatus::New,
             order_price: req.price.unwrap_or_else(|| Decimal::new(0, 0)),
             order_quantity: req.quantity.unwrap_or_else(|| Decimal::new(0, 0)),
             executed_qty: Decimal::new(0, 0),
             cummulative_quote_qty: Decimal::new(0, 0),
-            time_in_force: req.time_in_force.unwrap_or(TimeInForce::Gtc),
+            time_in_force: req.time_in_force.clone().unwrap_or(TimeInForce::Gtc),
             stop_price: req.stop_price.unwrap_or_else(|| Decimal::new(0, 0)),
             iceberg_qty: req.iceberg_qty.unwrap_or_else(|| Decimal::new(0, 0)),
             create_time: 0,
