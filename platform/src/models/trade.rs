@@ -26,10 +26,7 @@ impl Order {
         Order {
             symbol: req.symbol.clone(),
             order_id: "".to_string(),
-            client_order_id: req
-                .new_client_order_id
-                .clone()
-                .unwrap_or_else(|| "".to_string()),
+            client_order_id: req.client_order_id.clone(),
             order_side: req.side.clone(),
             order_type: req.r#type.clone(),
             order_status: OrderStatus::New,

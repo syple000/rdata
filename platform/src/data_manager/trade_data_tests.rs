@@ -2,8 +2,9 @@ use crate::{
     config::Config,
     data_manager::{trade_data::TradeData, TradeDataManager},
     models::{
-        Account, Balance, CancelOrderRequest, GetOpenOrdersRequest, GetUserTradesRequest,
-        MarketType, Order, OrderSide, OrderType, PlaceOrderRequest, TimeInForce, UserTrade,
+        Account, Balance, CancelOrderRequest, GetAllOrdersRequest, GetOpenOrdersRequest,
+        GetUserTradesRequest, MarketType, Order, OrderSide, OrderType, PlaceOrderRequest,
+        TimeInForce, UserTrade,
     },
     trade_provider::{binance_spot_trade_provider::BinanceSpotTradeProvider, TradeProvider},
 };
@@ -28,9 +29,6 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     {{
         "data_manager": {{
             "market_types": ["binance_spot"],
-            "binance_spot": {{
-                "symbols": ["BTCUSDT"]
-            }},
             "db_path": "{}",
             "refresh_interval_secs": 5
         }},
@@ -60,33 +58,24 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     let mut config_file = NamedTempFile::new().unwrap();
     std::io::Write::write_all(&mut config_file, config_content.as_bytes()).unwrap();
     let config_path = config_file.path().to_str().unwrap();
-
-    // Load config
     let config = Config::from_json(config_path).unwrap();
 
-    info!("Creating BinanceSpotTradeProvider...");
-
-    // Initialize Binance trade provider
     let mut provider = BinanceSpotTradeProvider::new(Arc::new(config.clone())).unwrap();
     provider.init().await.unwrap();
     let provider = Arc::new(provider);
-
-    // Create trade providers map
     let mut trade_providers: HashMap<MarketType, Arc<dyn TradeProvider>> = HashMap::new();
     trade_providers.insert(MarketType::BinanceSpot, provider.clone());
 
-    // Initialize TradeData
     let trade_data = TradeData::new(config.clone(), Arc::new(trade_providers)).unwrap();
-    let trade_data: Arc<dyn TradeDataManager> = Arc::new(trade_data);
-
-    info!("TradeData initialized successfully.");
+    let trade_data_ptr = Arc::new(trade_data);
+    let trade_data: Arc<dyn TradeDataManager> = trade_data_ptr.clone();
 
     trade_data.init().await.unwrap();
 
-    info!("TradeData init() phase complete. Waiting for initial setup...");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // 记录开始时间，睡眠5秒后进行交易
+    let start_ts = time::get_current_milli_timestamp();
+    tokio::time::sleep(Duration::from_millis(5000)).await;
 
-    // ============ Test 1: Place a buy limit order (will be filled or remain open) ============
     info!("Test 1: Placing buy limit order...");
     let buy_limit_order = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
@@ -95,25 +84,16 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: Some(Decimal::from_str("140000.0").unwrap()),
-        new_client_order_id: Some(format!(
-            "test_buy_limit_{}",
-            time::get_current_milli_timestamp()
-        )),
+        client_order_id: format!("test_buy_limit_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
-
     let order_1: Order = trade_data
         .place_order(&MarketType::BinanceSpot, buy_limit_order.clone())
         .await
         .unwrap();
-    info!(
-        "Buy limit order placed: order_id={}, status={:?}",
-        order_1.order_id, order_1.order_status
-    );
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // ============ Test 2: Place another buy order that will be cancelled ============
     info!("Test 2: Placing buy order to be cancelled...");
     let buy_order_to_cancel = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
@@ -122,43 +102,30 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: Some(Decimal::from_str("100000.0").unwrap()),
-        new_client_order_id: Some(format!(
-            "test_cancel_{}",
-            time::get_current_milli_timestamp()
-        )),
+        client_order_id: format!("test_cancel_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
-
     let order_2: Order = trade_data
         .place_order(&MarketType::BinanceSpot, buy_order_to_cancel.clone())
         .await
         .unwrap();
-    info!(
-        "Buy order for cancellation placed: order_id={}, status={:?}",
-        order_2.order_id, order_2.order_status
-    );
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // ============ Test 3: Cancel the second order ============
-    info!("Test 3: Cancelling the second order...");
     trade_data
         .cancel_order(
             &MarketType::BinanceSpot,
             CancelOrderRequest {
                 symbol: order_2.symbol.clone(),
                 order_id: Some(order_2.order_id.clone()),
-                orig_client_order_id: Some(order_2.client_order_id.clone()),
-                new_client_order_id: None,
+                client_order_id: order_2.client_order_id.clone(),
             },
         )
         .await
         .unwrap();
-    info!("Order cancelled: order_id={}", order_2.order_id);
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // ============ Test 4: Place a market sell order ============
-    info!("Test 4: Placing market sell order...");
+    info!("Test 3: Placing market sell order...");
     let sell_market_order = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
         side: OrderSide::Sell,
@@ -166,22 +133,17 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         time_in_force: None,
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: None,
-        new_client_order_id: Some(format!("test_sell_{}", time::get_current_milli_timestamp())),
+        client_order_id: format!("test_sell_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
-
-    let order_3 = trade_data
+    let order_3: Order = trade_data
         .place_order(&MarketType::BinanceSpot, sell_market_order.clone())
         .await
         .unwrap();
-    info!(
-        "Market sell order placed: order_id={}, status={:?}",
-        order_3.order_id, order_3.order_status
-    );
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // ============ Test 5: sell order limit, not filled ============
+    info!("Test 4: Placing sell limit order not to be filled...");
     let sell_order_to_cancel = PlaceOrderRequest {
         symbol: "BTCUSDT".to_string(),
         side: OrderSide::Sell,
@@ -189,76 +151,109 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: Some(Decimal::from_str("140000.0").unwrap()),
-        new_client_order_id: Some(format!("test_{}", time::get_current_milli_timestamp())),
+        client_order_id: format!("test_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
-
     let order_4: Order = trade_data
         .place_order(&MarketType::BinanceSpot, sell_order_to_cancel.clone())
         .await
         .unwrap();
-    info!(
-        "Sell order not filled: order_id={}, status={:?}",
-        order_4.order_id, order_4.order_status
-    );
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    // ============ Wait for all operations to be synced to TradeData ============
     info!("Waiting for operations to be synced to TradeData (3 seconds)...");
     tokio::time::sleep(Duration::from_secs(20)).await;
+    let end_ts = time::get_current_milli_timestamp();
 
-    // Test account data consistency
-    let account_from_cache = trade_data
+    // 账户最终一致性校验
+    let account1 = trade_data
         .get_account(&MarketType::BinanceSpot)
         .await
         .unwrap()
         .unwrap();
+    let account2 = trade_data_ptr
+        .get_account_from_db(&MarketType::BinanceSpot)
+        .unwrap()
+        .unwrap();
+    let account3 = provider.get_account().await.unwrap();
 
-    let account_from_api = provider.get_account().await.unwrap();
+    assert!(account_equal(&account1, &account2) && account_equal(&account1, &account3));
+    dump(&account1, "trade_data_account.json").unwrap();
 
-    assert!(account_equal(&account_from_cache, &account_from_api));
-    dump(&account_from_cache, "trade_data_account.json").unwrap();
-
-    // Test open orders data consistency
-    let open_orders_from_cache = trade_data
+    // 开订单状态校验
+    let open_orders1 = trade_data
         .get_open_orders(&MarketType::BinanceSpot)
         .await
         .unwrap();
-
-    let open_orders_from_api = provider
+    let open_orders2 = trade_data_ptr
+        .get_open_orders_from_db(&MarketType::BinanceSpot)
+        .unwrap();
+    let open_orders3 = provider
         .get_open_orders(GetOpenOrdersRequest { symbol: None })
         .await
         .unwrap();
+    assert!(
+        orders_equal(open_orders1.clone(), open_orders2.clone())
+            && orders_equal(open_orders1.clone(), open_orders3.clone())
+    );
+    assert!(open_orders1
+        .iter()
+        .map(|e| e.order_id.clone())
+        .collect::<Vec<String>>()
+        .contains(&order_4.order_id));
+    dump(&open_orders1, "trade_data_open_orders.json").unwrap();
 
-    assert!(orders_equal(
-        open_orders_from_cache.clone(),
-        open_orders_from_api.clone()
-    ));
-    dump(&open_orders_from_api, "trade_data_open_orders.json").unwrap();
-
-    // Test user trades data consistency
-    // 假定测试运行间隔大于1minute，以确保可以获取到历史交易数据
-    let user_trades_from_data_manager = trade_data
-        .get_user_trades(&MarketType::BinanceSpot, "BTCUSDT", Some(200))
+    // 全部订单 & 成交记录校验（本次测试时间区间）
+    let orders1 = trade_data
+        .get_orders(&MarketType::BinanceSpot, "BTCUSDT", None)
         .await
-        .unwrap();
-    let user_trades_from_api = provider
-        .get_user_trades(GetUserTradesRequest {
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.update_time >= start_ts && e.update_time <= end_ts)
+        .collect::<Vec<Order>>();
+    let orders2 = provider
+        .get_all_orders(GetAllOrdersRequest {
             symbol: "BTCUSDT".to_string(),
-            order_id: None,
-            limit: Some(200),
             from_id: None,
-            start_time: Some(time::get_current_milli_timestamp() - 24 * 60 * 60 * 1000 + 1),
-            end_time: None,
+            start_time: Some(start_ts),
+            end_time: Some(end_ts),
+            limit: None,
         })
         .await
         .unwrap();
-    assert!(trades_equal(
-        user_trades_from_data_manager.clone(),
-        user_trades_from_api.clone()
-    ));
-    dump(&user_trades_from_api, "trade_data_user_trades.json").unwrap();
+    assert!(orders_equal(orders1.clone(), orders2.clone()));
+    let order_ids = orders1
+        .iter()
+        .map(|e| e.order_id.clone())
+        .collect::<Vec<String>>();
+    assert!(
+        order_ids.contains(&order_1.order_id)
+            && order_ids.contains(&order_2.order_id)
+            && order_ids.contains(&order_3.order_id)
+            && order_ids.contains(&order_4.order_id)
+    );
+    dump(&orders1, "trade_data_orders.json").unwrap();
+
+    let trades1 = trade_data
+        .get_user_trades(&MarketType::BinanceSpot, "BTCUSDT", None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.timestamp >= start_ts && e.timestamp <= end_ts)
+        .collect::<Vec<UserTrade>>();
+    let trades2 = provider
+        .get_user_trades(GetUserTradesRequest {
+            symbol: "BTCUSDT".to_string(),
+            order_id: None,
+            from_id: None,
+            start_time: Some(start_ts),
+            end_time: Some(end_ts),
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert!(trades_equal(trades1.clone(), trades2.clone()));
+    dump(&trades1, "trade_data_user_trades.json").unwrap();
 }
 
 fn account_equal(a1: &Account, a2: &Account) -> bool {

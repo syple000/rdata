@@ -8,7 +8,7 @@ use crate::binance::{
     },
     utils::{encode_params, hmac_sha256, sort_params},
 };
-use log::{error, info};
+use log::error;
 use rand::{distr::Alphanumeric, Rng};
 use rate_limiter::RateLimiter;
 use serde::Deserialize;
@@ -464,11 +464,10 @@ impl TradeStream {
 
         match account_update {
             AccountUpdateRaw::Unknown => {
-                info!("Unknown message: {}", text);
+                error!("unknown account update message: {}", text);
                 return Ok(());
             }
             AccountUpdateRaw::OutboundAccountPosition { .. } => {
-                info!("OutboundAccountPosition message: {}", text);
                 if outbound_account_position_cb.is_none() {
                     return Ok(());
                 }
@@ -481,7 +480,6 @@ impl TradeStream {
                 return Ok(());
             }
             AccountUpdateRaw::ExecutionReport { .. } => {
-                info!("ExecutionReport message: {}", text);
                 if execution_report_cb.is_none() {
                     return Ok(());
                 }

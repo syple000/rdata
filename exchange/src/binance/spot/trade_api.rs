@@ -11,7 +11,7 @@ use crate::binance::{
     },
     utils::{encode_params, hmac_sha256, sort_params},
 };
-use log::{error, info};
+use log::error;
 use rate_limiter::RateLimiter;
 use std::{sync::Arc, time::Duration};
 
@@ -249,7 +249,6 @@ impl TradeApi {
         let text = self
             .send_signed_request(reqwest::Method::GET, "/api/v3/order", params, 1)
             .await?;
-        info!("Get order response: {}", text);
 
         parse_get_order(&text).map_err(|e| crate::binance::errors::BinanceError::ParseResultError {
             message: e.to_string(),
@@ -273,7 +272,6 @@ impl TradeApi {
             .send_signed_request(reqwest::Method::GET, "/api/v3/openOrders", params, weight)
             .await?;
 
-        info!("Get open orders response: {}", text);
         parse_get_open_orders(&text).map_err(|e| {
             crate::binance::errors::BinanceError::ParseResultError {
                 message: format!("{}, {}", text, e.to_string()),
@@ -384,8 +382,6 @@ impl TradeApi {
         let text = self
             .send_signed_request(reqwest::Method::GET, "/api/v3/account", params, 20)
             .await?;
-
-        info!("Get account response: {}", text);
 
         parse_get_account(&text).map_err(|e| {
             crate::binance::errors::BinanceError::ParseResultError {

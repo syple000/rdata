@@ -93,10 +93,7 @@ async fn test_binance_spot_trade_provider() {
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: Some(Decimal::from_str("140000.0").unwrap()),
-        new_client_order_id: Some(format!(
-            "test_buy_limit_{}",
-            time::get_current_milli_timestamp()
-        )),
+        client_order_id: format!("test_buy_limit_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
@@ -123,10 +120,7 @@ async fn test_binance_spot_trade_provider() {
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: Some(Decimal::from_str("100000.0").unwrap()),
-        new_client_order_id: Some(format!(
-            "test_buy_limit_{}",
-            time::get_current_milli_timestamp()
-        )),
+        client_order_id: format!("test_buy_limit_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
@@ -154,8 +148,7 @@ async fn test_binance_spot_trade_provider() {
         .cancel_order(CancelOrderRequest {
             symbol: order.symbol.to_string(),
             order_id: Some(order.order_id.to_string()),
-            orig_client_order_id: Some(order.client_order_id.to_string()),
-            new_client_order_id: Some(order.client_order_id.to_string()),
+            client_order_id: order.client_order_id,
         })
         .await
         .unwrap();
@@ -179,10 +172,7 @@ async fn test_binance_spot_trade_provider() {
         time_in_force: None,
         quantity: Some(Decimal::from_str("0.001").unwrap()),
         price: None,
-        new_client_order_id: Some(format!(
-            "test_sell_market_{}",
-            time::get_current_milli_timestamp()
-        )),
+        client_order_id: format!("test_sell_market_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };
@@ -211,10 +201,7 @@ async fn test_binance_spot_trade_provider() {
         time_in_force: None,
         quantity: Some(Decimal::from_str("80.0").unwrap()),
         price: None,
-        new_client_order_id: Some(format!(
-            "test_sell_fail_{}",
-            time::get_current_milli_timestamp()
-        )),
+        client_order_id: format!("test_sell_fail_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
     };

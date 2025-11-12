@@ -421,7 +421,7 @@ impl From<PlaceOrderRequest> for ex_requests::PlaceOrderRequest {
             time_in_force: value.time_in_force.map(|tif| tif.into()),
             quantity: value.quantity,
             price: value.price,
-            new_client_order_id: value.new_client_order_id,
+            new_client_order_id: Some(value.client_order_id),
             stop_price: value.stop_price,
             iceberg_qty: value.iceberg_qty,
         }
@@ -433,8 +433,8 @@ impl From<CancelOrderRequest> for ex_requests::CancelOrderRequest {
         ex_requests::CancelOrderRequest {
             symbol: value.symbol,
             order_id: value.order_id.and_then(|id| id.parse().ok()),
-            orig_client_order_id: value.orig_client_order_id,
-            new_client_order_id: value.new_client_order_id,
+            orig_client_order_id: Some(value.client_order_id.clone()),
+            new_client_order_id: Some(value.client_order_id),
         }
     }
 }
