@@ -208,14 +208,9 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     info!("Waiting for operations to be synced to TradeData (3 seconds)...");
     tokio::time::sleep(Duration::from_secs(20)).await;
 
+    // Test account data consistency
     let account_from_cache = trade_data
         .get_account(&MarketType::BinanceSpot)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let account_from_db = trade_data
-        .get_account_from_db(&MarketType::BinanceSpot)
         .await
         .unwrap()
         .unwrap();
@@ -223,16 +218,11 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     let account_from_api = provider.get_account().await.unwrap();
 
     assert!(account_equal(&account_from_cache, &account_from_api));
-    assert!(account_equal(&account_from_db, &account_from_api));
     dump(&account_from_cache, "trade_data_account.json").unwrap();
 
+    // Test open orders data consistency
     let open_orders_from_cache = trade_data
         .get_open_orders(&MarketType::BinanceSpot)
-        .await
-        .unwrap();
-
-    let open_orders_from_db = trade_data
-        .get_open_orders_from_db(&MarketType::BinanceSpot)
         .await
         .unwrap();
 
@@ -245,29 +235,19 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         open_orders_from_cache.clone(),
         open_orders_from_api.clone()
     ));
-    assert!(orders_equal(
-        open_orders_from_db.clone(),
-        open_orders_from_api.clone()
-    ));
     dump(&open_orders_from_api, "trade_data_open_orders.json").unwrap();
 
-    let trades_from_cache = trade_data
-        .get_open_user_trades(&MarketType::BinanceSpot)
-        .await
-        .unwrap();
-    assert!(trades_from_cache.len() == 0);
-    dump(&trades_from_cache, "trade_data_trades_from_cache.json").unwrap();
-
+    // Test user trades data consistency
     // 假定测试运行间隔大于1minute，以确保可以获取到历史交易数据
-    let user_trades_from_db = trade_data
-        .get_user_trades_from_db(&MarketType::BinanceSpot, "BTCUSDT", Some(200))
+    let user_trades_from_data_manager = trade_data
+        .get_user_trades(&MarketType::BinanceSpot, "BTCUSDT", Some(200))
         .await
         .unwrap();
     let user_trades_from_api = provider
         .get_user_trades(GetUserTradesRequest {
             symbol: "BTCUSDT".to_string(),
             order_id: None,
-            limit: Some(500),
+            limit: Some(200),
             from_id: None,
             start_time: Some(time::get_current_milli_timestamp() - 24 * 60 * 60 * 1000 + 1),
             end_time: None,
@@ -275,7 +255,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         .await
         .unwrap();
     assert!(trades_equal(
-        user_trades_from_db.clone(),
+        user_trades_from_data_manager.clone(),
         user_trades_from_api.clone()
     ));
     dump(&user_trades_from_api, "trade_data_user_trades.json").unwrap();

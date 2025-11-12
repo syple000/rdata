@@ -102,28 +102,31 @@ impl MarketData {
                     ),
                 })?;
 
-            let symbols: Vec<String> = config
-                .get(&format!("data_manager.{}.symbols", market_type.as_str()))
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!(
-                        "data_manager {} symbols not found: {}",
-                        market_type.as_str(),
-                        e
-                    ),
-                })?;
+            let (symbols, kline_intervals) = match market_type {
+                MarketType::BinanceSpot => {
+                    let symbols: Vec<String> = config
+                        .get("binance.spot.subscribed_symbols")
+                        .map_err(|e| PlatformError::DataManagerError {
+                            message: format!(
+                                "data_manager {} symbols not found: {}",
+                                market_type.as_str(),
+                                e
+                            ),
+                        })?;
 
-            let kline_intervals: Vec<KlineInterval> = config
-                .get(&format!(
-                    "data_manager.{}.kline_intervals",
-                    market_type.as_str()
-                ))
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!(
-                        "data_manager {} kline_intervals not found: {}",
-                        market_type.as_str(),
-                        e
-                    ),
-                })?;
+                    let kline_intervals: Vec<KlineInterval> = config
+                        .get("binance.spot.subscribed_kline_intervals")
+                        .map_err(|e| PlatformError::DataManagerError {
+                            message: format!(
+                                "data_manager {} kline_intervals not found: {}",
+                                market_type.as_str(),
+                                e
+                            ),
+                        })?;
+
+                    (symbols, kline_intervals)
+                }
+            };
 
             for symbol in symbols {
                 for interval in &kline_intervals {
@@ -170,11 +173,6 @@ impl MarketData {
                         ),
                     })?;
 
-            info!(
-                "Initializing MarketData subscription for market type: {:?}",
-                market_type
-            );
-
             // 订阅kline更新
             let shutdown_token = self.shutdown_token.clone();
             let klines = self.klines.clone();
@@ -189,10 +187,14 @@ impl MarketData {
                         kline = kline_sub.recv() => {
                             match kline {
                                 Ok(kline) => {
-                                    let _ = Self::add_kline_inner(klines.clone(), &market_type_clone, kline).await;
+                                    let symbol = kline.symbol.clone();
+                                    let kline_interval = kline.interval.clone();
+                                    if Self::add_kline_inner(klines.clone(), &market_type_clone, kline).await.is_err() {
+                                        log::error!("Failed to add kline data for market type: {:?}, symbol: {}, kline_interval: {:?}", market_type_clone, symbol, kline_interval);
+                                    }
                                 }
                                 Err(_e) => {
-                                    // pass，预期不应该出现该错误
+                                    log::error!("Kline subscription error for market type: {:?}", market_type_clone);
                                 }
                             }
                         }
@@ -214,10 +216,13 @@ impl MarketData {
                         trade = trade_sub.recv() => {
                             match trade {
                                 Ok(trade) => {
-                                    let _ = Self::add_trade_inner(trades.clone(), &market_type_clone, trade).await;
+                                    let symbol = trade.symbol.clone();
+                                    if Self::add_trade_inner(trades.clone(), &market_type_clone, trade).await.is_err() {
+                                        log::error!("Failed to add trade data for market type: {:?}, symbol: {}", market_type_clone, symbol);
+                                    }
                                 }
                                 Err(_e) => {
-                                    // pass，预期不应该出现该错误
+                                    log::error!("Trade subscription error for market type: {:?}", market_type_clone);
                                 }
                             }
                         }
@@ -239,10 +244,13 @@ impl MarketData {
                         depth = depth_sub.recv() => {
                             match depth {
                                 Ok(depth) => {
-                                    let _ = Self::add_depth_inner(depths.clone(), &market_type_clone, depth).await;
+                                    let symbol = depth.symbol.clone();
+                                    if Self::add_depth_inner(depths.clone(), &market_type_clone, depth).await.is_err() {
+                                        log::error!("Failed to add depth data for market type: {:?}, symbol: {:?}", market_type_clone, symbol);
+                                    }
                                 }
                                 Err(_e) => {
-                                    // pass，预期不应该出现该错误
+                                    log::error!("Depth subscription error for market type: {:?}", market_type_clone);
                                 }
                             }
                         }
@@ -264,10 +272,13 @@ impl MarketData {
                         ticker = ticker_sub.recv() => {
                             match ticker {
                                 Ok(ticker) => {
-                                    let _ = Self::add_ticker_inner(tickers.clone(), &market_type_clone, ticker).await;
+                                    let symbol = ticker.symbol.clone();
+                                    if Self::add_ticker_inner(tickers.clone(), &market_type_clone, ticker).await.is_err() {
+                                        log::error!("Failed to add ticker data for market type: {:?}, symbol: {}", market_type_clone, symbol);
+                                    }
                                 }
                                 Err(_e) => {
-                                    // pass，预期不应该出现该错误
+                                    log::error!("Ticker subscription error for market type: {:?}", market_type_clone);
                                 }
                             }
                         }
@@ -277,7 +288,6 @@ impl MarketData {
         }
 
         // API获取kline/trade/depth/ticker数据初始化
-        info!("Initializing MarketData from API");
         self.init_data_from_api(self.market_providers.clone())
             .await?;
 
@@ -334,8 +344,17 @@ impl MarketData {
                                 message: format!("init data from api, fetch klines err: {}", e),
                             })?;
                         for kline in klines {
-                            let _ = Self::add_kline_inner(self.klines.clone(), market_type, kline)
-                                .await;
+                            if Self::add_kline_inner(self.klines.clone(), market_type, kline)
+                                .await
+                                .is_err()
+                            {
+                                log::error!(
+                                    "Failed to add kline data for market type: {:?}, symbol: {}, kline_interval: {:?}",
+                                    market_type,
+                                    symbol,
+                                    interval
+                                );
+                            }
                         }
                     }
                 }
@@ -359,8 +378,16 @@ impl MarketData {
                         })?;
 
                     for trade in trades {
-                        let _ =
-                            Self::add_trade_inner(self.trades.clone(), market_type, trade).await;
+                        if Self::add_trade_inner(self.trades.clone(), market_type, trade)
+                            .await
+                            .is_err()
+                        {
+                            log::error!(
+                                "Failed to add trade data for market type: {:?}, symbol: {}",
+                                market_type,
+                                symbol
+                            );
+                        }
                     }
                 }
 
@@ -375,7 +402,16 @@ impl MarketData {
                     .map_err(|e| PlatformError::DataManagerError {
                         message: format!("init data from api, fetch depth err: {}", e),
                     })?;
-                let _ = Self::add_depth_inner(self.depths.clone(), market_type, depth).await;
+                if Self::add_depth_inner(self.depths.clone(), market_type, depth)
+                    .await
+                    .is_err()
+                {
+                    log::error!(
+                        "Failed to add depth data for market type: {:?}, symbol: {}",
+                        market_type,
+                        symbol
+                    );
+                }
 
                 // 初始化ticker数据（获取最新的）
                 info!("Initializing ticker data for {:?} {}", market_type, symbol);
@@ -397,7 +433,16 @@ impl MarketData {
                     });
                 }
                 let ticker = tickers.first().unwrap().clone();
-                let _ = Self::add_ticker_inner(self.tickers.clone(), market_type, ticker).await;
+                if Self::add_ticker_inner(self.tickers.clone(), market_type, ticker)
+                    .await
+                    .is_err()
+                {
+                    log::error!(
+                        "Failed to add ticker for market type: {:?}, symbol: {}",
+                        market_type,
+                        symbol
+                    );
+                }
             }
         }
 
