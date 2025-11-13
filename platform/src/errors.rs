@@ -20,6 +20,9 @@ pub enum PlatformError {
     #[error("Strategy error: {message}")]
     StrategyError { message: String },
 
+    #[error("Platform error: {message}")]
+    PlatformError { message: String },
+
     #[error("Execution error: {message}")]
     ExecutionError { message: String },
 
