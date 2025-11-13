@@ -36,7 +36,7 @@ pub struct TradeData {
 
 impl TradeData {
     pub fn new(
-        config: Config,
+        config: Arc<Config>,
         trade_providers: Arc<HashMap<MarketType, Arc<dyn TradeProvider>>>,
     ) -> Result<Self> {
         let market_types: Arc<Vec<MarketType>> =

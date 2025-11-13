@@ -62,7 +62,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     let mut trade_providers: HashMap<MarketType, Arc<dyn TradeProvider>> = HashMap::new();
     trade_providers.insert(MarketType::BinanceSpot, provider.clone());
 
-    let trade_data = TradeData::new(config.clone(), Arc::new(trade_providers)).unwrap();
+    let trade_data = TradeData::new(Arc::new(config.clone()), Arc::new(trade_providers)).unwrap();
     let trade_data_ptr = Arc::new(trade_data);
     let trade_data: Arc<dyn TradeDataManager> = trade_data_ptr.clone();
 

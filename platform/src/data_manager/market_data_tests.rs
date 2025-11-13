@@ -53,7 +53,7 @@ async fn test_market_data_initialization() {
     let mut market_providers: HashMap<MarketType, Arc<dyn MarketProvider>> = HashMap::new();
     market_providers.insert(MarketType::BinanceSpot, Arc::new(provider));
     let market_data =
-        Arc::new(MarketData::new(config.clone(), Arc::new(market_providers)).unwrap());
+        Arc::new(MarketData::new(Arc::new(config.clone()), Arc::new(market_providers)).unwrap());
 
     market_data.init().await.unwrap();
 
