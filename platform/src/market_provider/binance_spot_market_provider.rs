@@ -161,7 +161,7 @@ pub struct BinanceSpotMarketProvider {
 impl BinanceSpotMarketProvider {
     pub fn new(config: Arc<Config>) -> Result<Self> {
         let api_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance.spot.api_rate_limits").ok();
+            config.get("binance_spot.api_rate_limits").ok();
         let api_rate_limiters = api_rate_limits.map(|limits| {
             Arc::new(
                 limits
@@ -174,7 +174,7 @@ impl BinanceSpotMarketProvider {
         });
 
         let stream_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance.spot.stream_rate_limits").ok();
+            config.get("binance_spot.stream_rate_limits").ok();
         let stream_rate_limiters = stream_rate_limits.map(|limits| {
             Arc::new(
                 limits
@@ -187,16 +187,16 @@ impl BinanceSpotMarketProvider {
         });
 
         let kline_chan_cap = config
-            .get("binance.spot.kline_event_channel_capacity")
+            .get("binance_spot.kline_event_channel_capacity")
             .unwrap_or(5000);
         let trade_chan_cap = config
-            .get("binance.spot.trade_event_channel_capacity")
+            .get("binance_spot.trade_event_channel_capacity")
             .unwrap_or(5000);
         let depth_chan_cap = config
-            .get("binance.spot.depth_event_channel_capacity")
+            .get("binance_spot.depth_event_channel_capacity")
             .unwrap_or(5000);
         let ticker_chan_cap = config
-            .get("binance.spot.ticker_event_channel_capacity")
+            .get("binance_spot.ticker_event_channel_capacity")
             .unwrap_or(5000);
 
         let (kline_sender, kline_receiver) = broadcast::channel(kline_chan_cap);
@@ -229,14 +229,14 @@ fn create_market_api(
 ) -> Result<MarketApi> {
     let base_url: String =
         config
-            .get("binance.spot.api_base_url")
+            .get("binance_spot.api_base_url")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_base_url: {}", e),
             })?;
     let proxy_url: Option<String> = config.get("proxy.url").ok();
     let timeout_milli_secs: u64 =
         config
-            .get("binance.spot.api_timeout_milli_secs")
+            .get("binance_spot.api_timeout_milli_secs")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_timeout_milli_secs: {}", e),
             })?;
@@ -262,7 +262,7 @@ async fn create_market_stream(
 ) -> Result<MarketStream> {
     let stream_base_url: String =
         config
-            .get("binance.spot.stream_base_url")
+            .get("binance_spot.stream_base_url")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get stream_base_url: {}", e),
             })?;
@@ -271,12 +271,12 @@ async fn create_market_stream(
     let mut market_stream = MarketStream::new(stream_base_url, proxy_url, rate_limiters);
 
     let subscribed_symbols = config
-        .get::<Vec<String>>("binance.spot.subscribed_symbols")
+        .get::<Vec<String>>("binance_spot.subscribed_symbols")
         .map_err(|e| PlatformError::ConfigError {
             message: format!("Failed to get subscribed_symbols: {}", e),
         })?;
     let subscribed_kline_intervals = config
-        .get::<Vec<KlineInterval>>("binance.spot.subscribed_kline_intervals")
+        .get::<Vec<KlineInterval>>("binance_spot.subscribed_kline_intervals")
         .map_err(|e| PlatformError::ConfigError {
             message: format!("Failed to get subscribed_kline_intervals: {}", e),
         })?;
@@ -326,7 +326,7 @@ async fn create_market_stream(
     // websocket都区分symbol发送到独立的channel
     // 每一个独立的channel单独运行在一个协程中处理并发送到depth chan
     let depth_cache_chan_cap = config
-        .get("binance.spot.depth_cache_channel_capacity")
+        .get("binance_spot.depth_cache_channel_capacity")
         .unwrap_or(5000);
     let depth_updates = Arc::new(
         subscribed_symbols
@@ -488,7 +488,7 @@ impl MarketProvider for BinanceSpotMarketProvider {
         let ticker_sender = self.ticker_sender.clone();
         tokio::spawn(async move {
             let retry_interval = config
-                .get::<u64>("binance.spot.stream_reconnect_interval_milli_secs")
+                .get::<u64>("binance_spot.stream_reconnect_interval_milli_secs")
                 .unwrap_or(3000);
             let mut latest_retry_ts = 0u64;
             loop {
