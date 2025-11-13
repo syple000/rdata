@@ -21,20 +21,18 @@ async fn test_binance_spot_trade_provider() {
 
     let config_content = r#"
     {
-        "binance": {
-            "spot": {
-                "api_base_url": "https://testnet.binance.vision",
-                "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
-                "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",
-                "secret_key": "NgIxnbabjf6cTnPYZpyVDAP7UoVNm3wzhJcLh89FYWSA5SkXJlCZD0yDCQcA4R33",
-                "api_rate_limits": [[1000, 10], [60000, 500]],
-                "stream_api_rate_limits": [[1000, 10]],
-                "order_event_channel_capacity": 5000,
-                "user_trade_event_channel_capacity": 5000,
-                "account_event_channel_capacity": 5000,
-                "stream_reconnect_interval_milli_secs": 3000,
-                "api_timeout_milli_secs": 30000
-            }
+        "binance_spot": {
+            "api_base_url": "https://testnet.binance.vision",
+            "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
+            "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",
+            "secret_key": "NgIxnbabjf6cTnPYZpyVDAP7UoVNm3wzhJcLh89FYWSA5SkXJlCZD0yDCQcA4R33",
+            "api_rate_limits": [[1000, 10], [60000, 500]],
+            "stream_api_rate_limits": [[1000, 10]],
+            "order_event_channel_capacity": 5000,
+            "user_trade_event_channel_capacity": 5000,
+            "account_event_channel_capacity": 5000,
+            "stream_reconnect_interval_milli_secs": 3000,
+            "api_timeout_milli_secs": 30000
         },
         "proxy": {
             "url": "socks5://127.0.0.1:10808"

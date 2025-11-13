@@ -42,7 +42,7 @@ pub struct BinanceSpotTradeProvider {
 impl BinanceSpotTradeProvider {
     pub fn new(config: Arc<Config>) -> Result<Self> {
         let api_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance.spot.api_rate_limits").ok();
+            config.get("binance_spot.api_rate_limits").ok();
         let api_rate_limiters = api_rate_limits.map(|limits| {
             Arc::new(
                 limits
@@ -55,7 +55,7 @@ impl BinanceSpotTradeProvider {
         });
 
         let stream_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance.spot.stream_api_rate_limits").ok();
+            config.get("binance_spot.stream_api_rate_limits").ok();
         let stream_rate_limiters = stream_rate_limits.map(|limits| {
             Arc::new(
                 limits
@@ -68,13 +68,13 @@ impl BinanceSpotTradeProvider {
         });
 
         let order_chan_cap = config
-            .get("binance.spot.order_event_channel_capacity")
+            .get("binance_spot.order_event_channel_capacity")
             .unwrap_or(5000);
         let user_trade_chan_cap = config
-            .get("binance.spot.user_trade_event_channel_capacity")
+            .get("binance_spot.user_trade_event_channel_capacity")
             .unwrap_or(5000);
         let account_chan_cap = config
-            .get("binance.spot.account_event_channel_capacity")
+            .get("binance_spot.account_event_channel_capacity")
             .unwrap_or(5000);
 
         let (order_sender, order_receiver) = broadcast::channel(order_chan_cap);
@@ -104,26 +104,26 @@ fn create_trade_api(
 ) -> Result<TradeApi> {
     let base_url: String =
         config
-            .get("binance.spot.api_base_url")
+            .get("binance_spot.api_base_url")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_base_url: {}", e),
             })?;
     let proxy_url: Option<String> = config.get("proxy.url").ok();
     let timeout_milli_secs: u64 =
         config
-            .get("binance.spot.api_timeout_milli_secs")
+            .get("binance_spot.api_timeout_milli_secs")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_timeout_milli_secs: {}", e),
             })?;
     let api_key: String =
         config
-            .get("binance.spot.api_key")
+            .get("binance_spot.api_key")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_key: {}", e),
             })?;
     let secret_key: String =
         config
-            .get("binance.spot.secret_key")
+            .get("binance_spot.secret_key")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get secret_key: {}", e),
             })?;
@@ -154,20 +154,20 @@ async fn create_trade_stream(
 ) -> Result<TradeStream> {
     let stream_api_base_url: String =
         config
-            .get("binance.spot.stream_api_base_url")
+            .get("binance_spot.stream_api_base_url")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get stream_api_base_url: {}", e),
             })?;
     let proxy_url: Option<String> = config.get("proxy.url").ok();
     let api_key: String =
         config
-            .get("binance.spot.api_key")
+            .get("binance_spot.api_key")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get api_key: {}", e),
             })?;
     let secret_key: String =
         config
-            .get("binance.spot.secret_key")
+            .get("binance_spot.secret_key")
             .map_err(|e| PlatformError::ConfigError {
                 message: format!("Failed to get secret_key: {}", e),
             })?;
@@ -253,7 +253,7 @@ impl TradeProvider for BinanceSpotTradeProvider {
         let account_update_sender = self.account_update_sender.clone();
         tokio::spawn(async move {
             let retry_interval = config
-                .get::<u64>("binance.spot.stream_reconnect_interval_milli_secs")
+                .get::<u64>("binance_spot.stream_reconnect_interval_milli_secs")
                 .unwrap_or(3000);
             let mut latest_retry_ts = 0u64;
             loop {
