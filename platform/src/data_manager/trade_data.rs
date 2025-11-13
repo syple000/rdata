@@ -22,7 +22,7 @@ struct OpenOrderTradeStat {
 
 pub struct TradeData {
     market_types: Arc<Vec<MarketType>>,
-    refresh_interval: Duration,
+    refresh_intervals: Arc<HashMap<MarketType, Duration>>,
     shutdown_token: CancellationToken,
     trade_providers: Arc<HashMap<MarketType, Arc<dyn TradeProvider>>>,
 
@@ -40,23 +40,23 @@ impl TradeData {
         trade_providers: Arc<HashMap<MarketType, Arc<dyn TradeProvider>>>,
     ) -> Result<Self> {
         let market_types: Arc<Vec<MarketType>> =
-            Arc::new(config.get("data_manager.market_types").map_err(|e| {
-                PlatformError::DataManagerError {
-                    message: format!("data_manager market_types not found: {}", e),
-                }
-            })?);
+            Arc::new(
+                config
+                    .get("markets")
+                    .map_err(|e| PlatformError::DataManagerError {
+                        message: format!("data_manager market_types not found: {}", e),
+                    })?,
+            );
         let db_path: String =
             config
-                .get("data_manager.db_path")
+                .get("db_path")
                 .map_err(|e| PlatformError::DataManagerError {
                     message: format!("data_manager db_path not found: {}", e),
                 })?;
-        let refresh_interval_secs: u64 = config
-            .get("data_manager.refresh_interval_secs")
-            .unwrap_or(300); // 默认300秒
 
         let mut accounts = HashMap::new();
         let mut stats = HashMap::new();
+        let mut refresh_intervals = HashMap::new();
         for market_type in market_types.iter() {
             accounts.insert(market_type.clone(), Arc::new(RwLock::new(None)));
             stats.insert(
@@ -64,6 +64,14 @@ impl TradeData {
                 Arc::new(RwLock::new(OpenOrderTradeStat {
                     orders: HashMap::new(),
                 })),
+            );
+            refresh_intervals.insert(
+                market_type.clone(),
+                Duration::from_secs(
+                    config
+                        .get::<u64>(&format!("{}.refresh_interval_secs", market_type.as_str()))
+                        .unwrap_or(600),
+                ),
             );
         }
 
@@ -77,7 +85,7 @@ impl TradeData {
         Ok(Self {
             market_types,
             trade_providers,
-            refresh_interval: Duration::from_secs(refresh_interval_secs),
+            refresh_intervals: Arc::new(refresh_intervals),
             shutdown_token: CancellationToken::new(),
             accounts: Arc::new(accounts),
             open_order_stats: Arc::new(stats),
@@ -973,7 +981,11 @@ impl TradeData {
             let accounts = self.accounts.clone();
             let open_order_stats = self.open_order_stats.clone();
             let market_type_clone = market_type.clone();
-            let refresh_interval = self.refresh_interval.clone();
+            let refresh_interval = self
+                .refresh_intervals
+                .get(&market_type_clone)
+                .unwrap()
+                .clone();
             let trade_provider_clone = trade_provider.clone();
             let db = self.db.clone();
             tokio::spawn(async move {

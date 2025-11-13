@@ -27,25 +27,21 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     let config_content = format!(
         r#"
     {{
-        "data_manager": {{
-            "market_types": ["binance_spot"],
-            "db_path": "{}",
-            "refresh_interval_secs": 5
-        }},
-        "binance": {{
-            "spot": {{
-                "api_base_url": "https://testnet.binance.vision",
-                "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
-                "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",
-                "secret_key": "NgIxnbabjf6cTnPYZpyVDAP7UoVNm3wzhJcLh89FYWSA5SkXJlCZD0yDCQcA4R33",
-                "api_rate_limits": [[1000, 500], [60000, 5000]],
-                "stream_rate_limits": [[1000, 500]],
-                "order_event_channel_capacity": 5000,
-                "user_trade_event_channel_capacity": 5000,
-                "account_event_channel_capacity": 5000,
-                "stream_reconnect_interval_milli_secs": 3000,
-                "api_timeout_milli_secs": 30000
-            }}
+        "markets": ["binance_spot"],
+        "db_path": "{}",
+        "binance_spot": {{
+            "refresh_interval_secs": 5,
+            "api_base_url": "https://testnet.binance.vision",
+            "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
+            "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",
+            "secret_key": "NgIxnbabjf6cTnPYZpyVDAP7UoVNm3wzhJcLh89FYWSA5SkXJlCZD0yDCQcA4R33",
+            "api_rate_limits": [[1000, 500], [60000, 5000]],
+            "stream_rate_limits": [[1000, 500]],
+            "order_event_channel_capacity": 5000,
+            "user_trade_event_channel_capacity": 5000,
+            "account_event_channel_capacity": 5000,
+            "stream_reconnect_interval_milli_secs": 3000,
+            "api_timeout_milli_secs": 30000
         }},
         "proxy": {{
             "url": "socks5://127.0.0.1:10808"
@@ -161,7 +157,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         .unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    info!("Waiting for operations to be synced to TradeData (3 seconds)...");
+    info!("Waiting for operations to be synced to TradeData (20 seconds)...");
     tokio::time::sleep(Duration::from_secs(20)).await;
     let end_ts = time::get_current_milli_timestamp();
 

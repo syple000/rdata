@@ -20,28 +20,22 @@ async fn test_market_data_initialization() {
 
     let config_content = r#"
     {
-        "data_manager": {
-            "market_types": ["binance_spot"],
-            "binance_spot": {
-                "cache_capacity": 100
-            }
-        },
-        "binance": {
-            "spot": {
-                "api_base_url": "https://api.binance.com",
-                "stream_base_url": "wss://stream.binance.com:9443/stream",
-                "subscribed_symbols": ["BTCUSDT", "ETHUSDT"],
-                "subscribed_kline_intervals": ["1m", "5m"],
-                "api_rate_limits": [[1000, 500], [60000, 5000]],
-                "stream_rate_limits": [[1000, 500]],
-                "kline_event_channel_capacity": 5000,
-                "trade_event_channel_capacity": 5000,
-                "depth_event_channel_capacity": 5000,
-                "ticker_event_channel_capacity": 5000,
-                "depth_cache_channel_capacity": 5000,
-                "stream_reconnect_interval_milli_secs": 3000,
-                "api_timeout_milli_secs": 10000
-            }
+        "markets": ["binance_spot"],
+        "binance_spot": {
+            "cache_capacity": 100,
+            "api_base_url": "https://api.binance.com",
+            "stream_base_url": "wss://stream.binance.com:9443/stream",
+            "subscribed_symbols": ["BTCUSDT", "ETHUSDT"],
+            "subscribed_kline_intervals": ["1m", "5m"],
+            "api_rate_limits": [[1000, 500], [60000, 5000]],
+            "stream_rate_limits": [[1000, 500]],
+            "kline_event_channel_capacity": 5000,
+            "trade_event_channel_capacity": 5000,
+            "depth_event_channel_capacity": 5000,
+            "ticker_event_channel_capacity": 5000,
+            "depth_cache_channel_capacity": 5000,
+            "stream_reconnect_interval_milli_secs": 3000,
+            "api_timeout_milli_secs": 10000
         },
         "proxy": {
             "url": "socks5://127.0.0.1:10808"

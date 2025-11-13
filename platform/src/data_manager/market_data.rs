@@ -77,11 +77,13 @@ impl MarketData {
         market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
     ) -> Result<Self> {
         let market_types: Arc<Vec<MarketType>> =
-            Arc::new(config.get("data_manager.market_types").map_err(|e| {
-                PlatformError::DataManagerError {
-                    message: format!("data_manager market_types not found: {}", e),
-                }
-            })?);
+            Arc::new(
+                config
+                    .get("markets")
+                    .map_err(|e| PlatformError::DataManagerError {
+                        message: format!("data_manager markets not found: {}", e),
+                    })?,
+            );
 
         let mut klines = HashMap::new();
         let mut trades = HashMap::new();
@@ -89,10 +91,7 @@ impl MarketData {
         let mut tickers = HashMap::new();
         for market_type in market_types.iter() {
             let cache_capacity: usize = config
-                .get(&format!(
-                    "data_manager.{}.cache_capacity",
-                    market_type.as_str()
-                ))
+                .get(&format!("{}.cache_capacity", market_type.as_str()))
                 .map_err(|e| PlatformError::DataManagerError {
                     message: format!(
                         "data_manager {} cache_capacity not found: {}",
@@ -101,31 +100,28 @@ impl MarketData {
                     ),
                 })?;
 
-            let (symbols, kline_intervals) = match market_type {
-                MarketType::BinanceSpot => {
-                    let symbols: Vec<String> = config
-                        .get("binance.spot.subscribed_symbols")
-                        .map_err(|e| PlatformError::DataManagerError {
-                            message: format!(
-                                "data_manager {} symbols not found: {}",
-                                market_type.as_str(),
-                                e
-                            ),
-                        })?;
+            let symbols: Vec<String> = config
+                .get(&format!("{}.subscribed_symbols", market_type.as_str()))
+                .map_err(|e| PlatformError::DataManagerError {
+                    message: format!(
+                        "data_manager {} symbols not found: {}",
+                        market_type.as_str(),
+                        e
+                    ),
+                })?;
 
-                    let kline_intervals: Vec<KlineInterval> = config
-                        .get("binance.spot.subscribed_kline_intervals")
-                        .map_err(|e| PlatformError::DataManagerError {
-                            message: format!(
-                                "data_manager {} kline_intervals not found: {}",
-                                market_type.as_str(),
-                                e
-                            ),
-                        })?;
-
-                    (symbols, kline_intervals)
-                }
-            };
+            let kline_intervals: Vec<KlineInterval> = config
+                .get(&format!(
+                    "{}.subscribed_kline_intervals",
+                    market_type.as_str()
+                ))
+                .map_err(|e| PlatformError::DataManagerError {
+                    message: format!(
+                        "data_manager {} kline_intervals not found: {}",
+                        market_type.as_str(),
+                        e
+                    ),
+                })?;
 
             for symbol in symbols {
                 for interval in &kline_intervals {
