@@ -521,9 +521,13 @@ impl TradeData {
         db: Arc<SQLiteDB>,
         market_type: &MarketType,
         symbol: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
         limit: Option<usize>,
     ) -> Result<Vec<Order>> {
         let limit = limit.unwrap_or(1000);
+        let start_time = start_time.unwrap_or(0);
+        let end_time = end_time.unwrap_or(i64::MAX as u64);
         let query = format!(
             r#"
             SELECT symbol, order_id, client_order_id, order_side, order_type,
@@ -531,11 +535,11 @@ impl TradeData {
                    cummulative_quote_qty, time_in_force, stop_price, iceberg_qty,
                    create_time, update_time
             FROM orders
-            WHERE market_type = ?1 AND symbol = ?2
+            WHERE market_type = ?1 AND symbol = ?2 and update_time >= {} AND update_time <= {}
             ORDER BY update_time DESC
             LIMIT {}
         "#,
-            limit
+            start_time, end_time, limit
         );
         let market_type_str = market_type.as_str().to_string();
         let params: Vec<&dyn rusqlite::ToSql> = vec![&market_type_str, &symbol];
@@ -653,19 +657,23 @@ impl TradeData {
         db: Arc<SQLiteDB>,
         market_type: &MarketType,
         symbol: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
         limit: Option<usize>,
     ) -> Result<Vec<UserTrade>> {
         let limit = limit.unwrap_or(1000);
+        let start_time = start_time.unwrap_or(0);
+        let end_time = end_time.unwrap_or(i64::MAX as u64);
         let query = format!(
             r#"
             SELECT trade_id, order_id, symbol, order_side, trade_price,
                    trade_quantity, commission, commission_asset, is_maker, timestamp
             FROM user_trades
-            WHERE market_type = ?1 AND symbol = ?2
+            WHERE market_type = ?1 AND symbol = ?2 and timestamp >= {} AND timestamp <= {}
             ORDER BY timestamp DESC
             LIMIT {}
         "#,
-            limit
+            start_time, end_time, limit
         );
         let market_type_str = market_type.as_str().to_string();
         let params: Vec<&dyn rusqlite::ToSql> = vec![&market_type_str, &symbol];
@@ -1302,18 +1310,36 @@ impl TradeDataManager for TradeData {
         &self,
         market_type: &MarketType,
         symbol: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
         limit: Option<usize>,
     ) -> Result<Vec<Order>> {
-        Self::_get_orders(self.db.clone(), market_type, symbol, limit)
+        Self::_get_orders(
+            self.db.clone(),
+            market_type,
+            symbol,
+            start_time,
+            end_time,
+            limit,
+        )
     }
 
     async fn get_user_trades(
         &self,
         market_type: &MarketType,
         symbol: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
         limit: Option<usize>,
     ) -> Result<Vec<UserTrade>> {
-        Self::_get_user_trades(self.db.clone(), market_type, symbol, limit)
+        Self::_get_user_trades(
+            self.db.clone(),
+            market_type,
+            symbol,
+            start_time,
+            end_time,
+            limit,
+        )
     }
 
     async fn get_order_by_client_id(

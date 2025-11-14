@@ -58,6 +58,8 @@ pub trait TradeDataManager: Send + Sync {
         &self,
         market_type: &MarketType,
         symbol: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
         limit: Option<usize>,
     ) -> Result<Vec<Order>>;
 
@@ -65,6 +67,8 @@ pub trait TradeDataManager: Send + Sync {
         &self,
         market_type: &MarketType,
         symbol: &str,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
         limit: Option<usize>,
     ) -> Result<Vec<UserTrade>>;
 

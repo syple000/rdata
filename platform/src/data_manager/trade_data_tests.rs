@@ -97,7 +97,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         r#type: OrderType::Limit,
         time_in_force: Some(TimeInForce::Gtc),
         quantity: Some(Decimal::from_str("0.001").unwrap()),
-        price: Some(Decimal::from_str("100000.0").unwrap()),
+        price: Some(Decimal::from_str("80000.0").unwrap()),
         client_order_id: format!("test_cancel_{}", time::get_current_milli_timestamp()),
         stop_price: None,
         iceberg_qty: None,
@@ -201,7 +201,13 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
 
     // 全部订单 & 成交记录校验（本次测试时间区间）
     let orders1 = trade_data
-        .get_orders(&MarketType::BinanceSpot, "BTCUSDT", None)
+        .get_orders(
+            &MarketType::BinanceSpot,
+            "BTCUSDT",
+            Some(start_ts),
+            Some(end_ts),
+            None,
+        )
         .await
         .unwrap()
         .into_iter()
@@ -231,7 +237,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
     dump(&orders1, "trade_data_orders.json").unwrap();
 
     let trades1 = trade_data
-        .get_user_trades(&MarketType::BinanceSpot, "BTCUSDT", None)
+        .get_user_trades(&MarketType::BinanceSpot, "BTCUSDT", None, None, None)
         .await
         .unwrap()
         .into_iter()
