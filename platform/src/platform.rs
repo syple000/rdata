@@ -5,13 +5,11 @@ use crate::{
     },
     errors::{PlatformError, Result},
     market_provider::{BinanceSpotMarketProvider, MarketProvider},
-    models::{MarketType, StrategyOutput},
+    models::MarketType,
     trade_provider::{BinanceSpotTradeProvider, TradeProvider},
 };
 use db::sqlite::SQLiteDB;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 pub struct Platform {
     config: Arc<Config>,
@@ -23,10 +21,6 @@ pub struct Platform {
     trade_data_manager: Option<Arc<dyn TradeDataManager>>,
 
     db: Option<Arc<SQLiteDB>>,
-    strategy_output_sender: Option<mpsc::Sender<StrategyOutput>>,
-    strategy_output_receiver: Option<mpsc::Receiver<StrategyOutput>>,
-
-    shutdown_token: CancellationToken,
 }
 
 impl Platform {
@@ -38,9 +32,6 @@ impl Platform {
             market_data_manager: None,
             trade_data_manager: None,
             db: None,
-            strategy_output_sender: None,
-            strategy_output_receiver: None,
-            shutdown_token: CancellationToken::new(),
         })
     }
 
@@ -102,27 +93,6 @@ impl Platform {
                 message: format!("connect db: {} err: {}", db_path, e),
             }
         })?));
-
-        let (sender, receiver) = mpsc::channel(100);
-        self.strategy_output_sender = Some(sender);
-        self.strategy_output_receiver = Some(receiver);
-
-        // 读取策略，并在协程中启动（当前只考虑单策略）
-        // 多策略扩展依赖trade data注册维护虚拟账户，也需要平台执行检测冲突
-        // 暂时规避复杂度，做单策略
-
-        // 轮询策略输出通道，写入数据库，风控，执行交易
-
-        Ok(())
-    }
-
-    fn _create_strategy_output_table(&self) -> Result<()> {
-        // 创建策略输出数据表
-        Ok(())
-    }
-
-    pub async fn run_strategy() -> Result<()> {
-        // 根据策略ID，读取策略配置，启动策略协程
 
         Ok(())
     }

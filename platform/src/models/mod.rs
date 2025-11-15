@@ -12,6 +12,3 @@ pub use market_reqs::*;
 
 pub mod trade_reqs;
 pub use trade_reqs::*;
-
-pub mod strategy;
-pub use strategy::*;

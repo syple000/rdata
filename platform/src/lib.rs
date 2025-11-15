@@ -5,5 +5,4 @@ pub mod errors;
 pub mod market_provider;
 pub mod models;
 pub mod platform;
-pub mod strategy;
 pub mod trade_provider;
