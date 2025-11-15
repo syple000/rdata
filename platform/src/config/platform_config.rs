@@ -97,7 +97,7 @@ pub struct MarketConfig {
 pub struct PlatformConfig {
     pub markets: Vec<MarketType>,
     pub proxy: Option<Proxy>,
-    pub configs: HashMap<MarketType, MarketConfig>,
+    pub configs: HashMap<MarketType, Arc<MarketConfig>>,
 }
 
 impl PlatformConfig {
@@ -109,7 +109,7 @@ impl PlatformConfig {
                     message: format!("get markets err: {}", e),
                 })?;
         let proxy: Option<Proxy> = config.get("proxy").unwrap_or(None);
-        let mut configs: HashMap<MarketType, MarketConfig> = HashMap::new();
+        let mut configs: HashMap<MarketType, Arc<MarketConfig>> = HashMap::new();
         for market_type in &markets {
             let mut market_config: MarketConfig =
                 config
@@ -150,7 +150,7 @@ impl PlatformConfig {
                 )),
                 None => None,
             };
-            configs.insert(market_type.clone(), market_config);
+            configs.insert(market_type.clone(), Arc::new(market_config));
         }
         Ok(Self {
             markets,
