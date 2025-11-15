@@ -30,7 +30,7 @@ async fn test_trade_data_with_binance_operations_and_persistence() {
         "markets": ["binance_spot"],
         "db_path": "{}",
         "binance_spot": {{
-            "refresh_interval_secs": 5,
+            "trade_refresh_interval_secs": 5,
             "api_base_url": "https://testnet.binance.vision",
             "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
             "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",

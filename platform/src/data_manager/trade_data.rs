@@ -69,7 +69,10 @@ impl TradeData {
                 market_type.clone(),
                 Duration::from_secs(
                     config
-                        .get::<u64>(&format!("{}.refresh_interval_secs", market_type.as_str()))
+                        .get::<u64>(&format!(
+                            "{}.trade_refresh_interval_secs",
+                            market_type.as_str()
+                        ))
                         .unwrap_or(600),
                 ),
             );

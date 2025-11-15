@@ -3,8 +3,9 @@ use crate::{
     errors::{PlatformError, Result},
     market_provider::MarketProvider,
     models::{
-        DepthData, ExchangeInfo, GetDepthRequest, GetKlinesRequest, GetTicker24hrRequest,
-        GetTradesRequest, KlineData, KlineInterval, PriceLevel, Ticker24hr, Trade,
+        DepthData, ExchangeInfo, GetDepthRequest, GetExchangeInfoRequest, GetKlinesRequest,
+        GetTicker24hrRequest, GetTradesRequest, KlineData, KlineInterval, PriceLevel, Ticker24hr,
+        Trade,
     },
 };
 use arc_swap::ArcSwap;
@@ -582,7 +583,7 @@ impl MarketProvider for BinanceSpotMarketProvider {
         Ok(depth.into())
     }
 
-    async fn get_ticker_24hr(&self, symbol: GetTicker24hrRequest) -> Result<Vec<Ticker24hr>> {
+    async fn get_ticker_24hr(&self, req: GetTicker24hrRequest) -> Result<Vec<Ticker24hr>> {
         let api = self
             .market_api
             .as_ref()
@@ -590,7 +591,7 @@ impl MarketProvider for BinanceSpotMarketProvider {
                 message: "Market API not initialized".to_string(),
             })?;
 
-        let ticker = api.get_ticker_24hr(symbol.into()).await.map_err(|e| {
+        let ticker = api.get_ticker_24hr(req.into()).await.map_err(|e| {
             PlatformError::MarketProviderError {
                 message: format!("Failed to get ticker: {}", e),
             }
@@ -599,7 +600,7 @@ impl MarketProvider for BinanceSpotMarketProvider {
         Ok(ticker.into_iter().map(|t| t.into()).collect())
     }
 
-    async fn get_exchange_info(&self) -> Result<ExchangeInfo> {
+    async fn get_exchange_info(&self, req: GetExchangeInfoRequest) -> Result<ExchangeInfo> {
         let api = self
             .market_api
             .as_ref()
@@ -607,15 +608,11 @@ impl MarketProvider for BinanceSpotMarketProvider {
                 message: "Market API not initialized".to_string(),
             })?;
 
-        let info = api
-            .get_exchange_info(requests::GetExchangeInfoRequest {
-                symbol: None,
-                symbols: None,
-            })
-            .await
-            .map_err(|e| PlatformError::MarketProviderError {
+        let info = api.get_exchange_info(req.into()).await.map_err(|e| {
+            PlatformError::MarketProviderError {
                 message: format!("Failed to get exchange info: {}", e),
-            })?;
+            }
+        })?;
 
         Ok(info.into())
     }

@@ -3,13 +3,17 @@ use crate::{
     config::Config,
     errors::{PlatformError, Result},
     market_provider::MarketProvider,
-    models::{DepthData, KlineData, KlineInterval, MarketType, Ticker24hr, Trade},
+    models::{
+        DepthData, ExchangeInfo, GetExchangeInfoRequest, KlineData, KlineInterval, MarketType,
+        SymbolInfo, Ticker24hr, Trade,
+    },
 };
 use async_trait::async_trait;
 use log::info;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
+    time::Duration,
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -64,10 +68,13 @@ impl<T: Clone> Cache<T> {
 pub struct MarketData {
     market_types: Arc<Vec<MarketType>>,
     market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
+    refresh_intervals: HashMap<MarketType, Duration>,
     klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<Cache<KlineData>>>>>,
     trades: Arc<HashMap<(MarketType, String), Arc<RwLock<Cache<Trade>>>>>,
     depths: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<DepthData>>>>>,
     tickers: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<Ticker24hr>>>>>,
+    symbol_infos: Arc<HashMap<(MarketType, String), Arc<RwLock<Option<SymbolInfo>>>>>,
+    symbols: Arc<RwLock<HashMap<(MarketType, String, String), String>>>,
     shutdown_token: CancellationToken,
 }
 
@@ -89,7 +96,17 @@ impl MarketData {
         let mut trades = HashMap::new();
         let mut depths = HashMap::new();
         let mut tickers = HashMap::new();
+        let mut symbol_infos = HashMap::new();
+        let mut refresh_intervals = HashMap::new();
         for market_type in market_types.iter() {
+            let refresh_interval: u64 = config
+                .get(&format!(
+                    "{}.market_refresh_interval_secs",
+                    market_type.as_str()
+                ))
+                .unwrap_or(600);
+            refresh_intervals.insert(market_type.clone(), Duration::from_secs(refresh_interval));
+
             let cache_capacity: usize = config
                 .get(&format!("{}.cache_capacity", market_type.as_str()))
                 .map_err(|e| PlatformError::DataManagerError {
@@ -142,16 +159,23 @@ impl MarketData {
                     (market_type.clone(), symbol.clone()),
                     Arc::new(RwLock::new(Option::<Ticker24hr>::None)),
                 );
+                symbol_infos.insert(
+                    (market_type.clone(), symbol.clone()),
+                    Arc::new(RwLock::new(Option::<SymbolInfo>::None)),
+                );
             }
         }
 
         Ok(Self {
             market_types,
             market_providers,
+            refresh_intervals,
             klines: Arc::new(klines),
             trades: Arc::new(trades),
             depths: Arc::new(depths),
             tickers: Arc::new(tickers),
+            symbol_infos: Arc::new(symbol_infos),
+            symbols: Arc::new(RwLock::new(HashMap::new())),
             shutdown_token: CancellationToken::new(),
         })
     }
@@ -280,6 +304,53 @@ impl MarketData {
                     }
                 }
             });
+
+            // 定期刷新symbol_info
+            let shutdown_token = self.shutdown_token.clone();
+            let symbol_infos = self.symbol_infos.clone();
+            let symbols = self.symbols.clone();
+            let market_type_clone = market_type.clone();
+            let refresh_interval = self
+                .refresh_intervals
+                .get(market_type)
+                .cloned()
+                .unwrap_or(Duration::from_secs(600));
+            let market_provider_clone = market_provider.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(refresh_interval);
+                loop {
+                    tokio::select! {
+                        _ = shutdown_token.cancelled() => {
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            let symbols_list: Vec<String> =
+                                symbol_infos.keys()
+                                    .filter(|(mt, _)| mt == &market_type_clone)
+                                    .map(|(_, symbol)| symbol.clone())
+                                    .collect();
+                            match market_provider_clone.get_exchange_info(GetExchangeInfoRequest {
+                                symbol: None,
+                                symbols: Some(symbols_list),
+                            }).await {
+                                Ok(exchange_info) => {
+                                    for symbol_info in exchange_info.symbols {
+                                        if let Some(cache) = symbol_infos.get(&(market_type_clone.clone(), symbol_info.symbol.clone())) {
+                                            let mut cache_guard = cache.write().await;
+                                            *cache_guard = Some(symbol_info.clone());
+                                        }
+                                        let mut symbols_map = symbols.write().await;
+                                        symbols_map.insert((market_type_clone.clone(), symbol_info.base_asset.clone(), symbol_info.quote_asset.clone()), symbol_info.symbol.clone());
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to refresh exchange info for market type: {:?}: {}", market_type_clone, e);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         // API获取kline/trade/depth/ticker数据初始化
@@ -295,6 +366,40 @@ impl MarketData {
     ) -> Result<()> {
         for market_type in self.market_types.iter() {
             let market_provider = market_providers.get(market_type).unwrap();
+
+            let symbols_list: Vec<String> = self
+                .symbol_infos
+                .keys()
+                .filter(|(mt, _)| mt == market_type)
+                .map(|(_, symbol)| symbol.clone())
+                .collect();
+            let exchange_info: ExchangeInfo = market_provider
+                .get_exchange_info(GetExchangeInfoRequest {
+                    symbol: None,
+                    symbols: Some(symbols_list),
+                })
+                .await
+                .map_err(|e| PlatformError::DataManagerError {
+                    message: format!("init data from api, fetch exchange info err: {}", e),
+                })?;
+            for symbol_info in exchange_info.symbols {
+                if let Some(cache) = self
+                    .symbol_infos
+                    .get(&(market_type.clone(), symbol_info.symbol.clone()))
+                {
+                    let mut cache_guard = cache.write().await;
+                    *cache_guard = Some(symbol_info.clone());
+                }
+                let mut symbols_map = self.symbols.write().await;
+                symbols_map.insert(
+                    (
+                        market_type.clone(),
+                        symbol_info.base_asset.clone(),
+                        symbol_info.quote_asset.clone(),
+                    ),
+                    symbol_info.symbol.clone(),
+                );
+            }
 
             // 获取当前market_type的所有symbol
             let symbols: Vec<String> = self
@@ -591,6 +696,46 @@ impl MarketDataManager for MarketData {
         }
         Err(PlatformError::DataManagerError {
             message: format!("Ticker cache not found for: {:?}", (market_type, symbol)),
+        })
+    }
+
+    async fn get_symbol_info(
+        &self,
+        market_type: &MarketType,
+        symbol: &String,
+    ) -> Result<Option<SymbolInfo>> {
+        if let Some(cache) = self
+            .symbol_infos
+            .get(&(market_type.clone(), symbol.clone()))
+        {
+            let cache = cache.read().await;
+            return Ok(cache.clone());
+        }
+        Err(PlatformError::DataManagerError {
+            message: format!(
+                "SymbolInfo cache not found for: {:?}",
+                (market_type, symbol)
+            ),
+        })
+    }
+
+    async fn get_symbol(
+        &self,
+        market_type: &MarketType,
+        base_asset: &String,
+        quote_asset: &String,
+    ) -> Result<Option<String>> {
+        let symbols = self.symbols.read().await;
+        if let Some(symbol) =
+            symbols.get(&(market_type.clone(), base_asset.clone(), quote_asset.clone()))
+        {
+            return Ok(Some(symbol.clone()));
+        }
+        Err(PlatformError::DataManagerError {
+            message: format!(
+                "Symbol cache not found for: {:?}",
+                (market_type, base_asset, quote_asset)
+            ),
         })
     }
 }

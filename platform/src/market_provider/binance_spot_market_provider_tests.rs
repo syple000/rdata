@@ -2,8 +2,8 @@ use crate::{
     config::Config,
     market_provider::{binance_spot_market_provider::BinanceSpotMarketProvider, MarketProvider},
     models::{
-        DepthData, GetDepthRequest, GetKlinesRequest, GetTicker24hrRequest, GetTradesRequest,
-        KlineInterval,
+        DepthData, GetDepthRequest, GetExchangeInfoRequest, GetKlinesRequest, GetTicker24hrRequest,
+        GetTradesRequest, KlineInterval,
     },
 };
 use env_logger::Env;
@@ -100,7 +100,13 @@ async fn test_binance_spot_market_provider() {
     dump(&tickers, "test_tickers.json").unwrap();
 
     // Test get_exchange_info
-    let exchange_info = provider.get_exchange_info().await.unwrap();
+    let exchange_info = provider
+        .get_exchange_info(GetExchangeInfoRequest {
+            symbol: None,
+            symbols: None,
+        })
+        .await
+        .unwrap();
     dump(&exchange_info, "test_exchange_info.json").unwrap();
 
     info!("Completed API method tests.");

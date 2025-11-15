@@ -2,7 +2,7 @@ use crate::{
     errors::Result,
     models::{
         Account, CancelOrderRequest, DepthData, KlineData, KlineInterval, MarketType, Order,
-        PlaceOrderRequest, Ticker24hr, Trade, UserTrade,
+        PlaceOrderRequest, SymbolInfo, Ticker24hr, Trade, UserTrade,
     },
 };
 use async_trait::async_trait;
@@ -37,6 +37,19 @@ pub trait MarketDataManager: Send + Sync {
         market_type: &MarketType,
         symbol: &String,
     ) -> Result<Option<Ticker24hr>>;
+
+    async fn get_symbol_info(
+        &self,
+        market_type: &MarketType,
+        symbol: &String,
+    ) -> Result<Option<SymbolInfo>>;
+
+    async fn get_symbol(
+        &self,
+        market_type: &MarketType,
+        base_asset: &String,
+        quote_asset: &String,
+    ) -> Result<Option<String>>;
 }
 
 #[async_trait]

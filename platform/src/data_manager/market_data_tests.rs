@@ -23,6 +23,7 @@ async fn test_market_data_initialization() {
         "markets": ["binance_spot"],
         "binance_spot": {
             "cache_capacity": 100,
+            "market_refresh_interval_secs": 30,
             "api_base_url": "https://api.binance.com",
             "stream_base_url": "wss://stream.binance.com:9443/stream",
             "subscribed_symbols": ["BTCUSDT", "ETHUSDT"],
@@ -235,4 +236,43 @@ async fn test_market_data_initialization() {
     let lag = ticker_eth.close_time - old_eth_ticker.close_time;
     assert!(lag > 100000 && lag < 140000);
     dump(&ticker_eth, "market_data_ticker_eth.json").unwrap();
+
+    let symbol_info_btc = market_data
+        .get_symbol_info(&MarketType::BinanceSpot, &"BTCUSDT".to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    dump(&symbol_info_btc, "market_data_symbol_info_btc.json").unwrap();
+
+    let symbol_info_eth = market_data
+        .get_symbol_info(&MarketType::BinanceSpot, &"ETHUSDT".to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    dump(&symbol_info_eth, "market_data_symbol_info_eth.json").unwrap();
+
+    assert!(
+        market_data
+            .get_symbol(
+                &MarketType::BinanceSpot,
+                &"BTC".to_string(),
+                &"USDT".to_string(),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            == "BTCUSDT"
+    );
+    assert!(
+        market_data
+            .get_symbol(
+                &MarketType::BinanceSpot,
+                &"ETH".to_string(),
+                &"USDT".to_string(),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            == "ETHUSDT"
+    );
 }
