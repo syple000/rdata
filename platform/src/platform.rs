@@ -1,5 +1,5 @@
 use crate::{
-    config::Config,
+    config::PlatformConfig,
     data_manager::{
         market_data::MarketData, trade_data::TradeData, MarketDataManager, TradeDataManager,
     },
@@ -12,7 +12,7 @@ use db::sqlite::SQLiteDB;
 use std::{collections::HashMap, sync::Arc};
 
 pub struct Platform {
-    config: Arc<Config>,
+    config: Arc<PlatformConfig>,
 
     market_providers: Option<Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>>,
     trade_providers: Option<Arc<HashMap<MarketType, Arc<dyn TradeProvider>>>>,
@@ -24,7 +24,7 @@ pub struct Platform {
 }
 
 impl Platform {
-    pub fn new(config: Arc<Config>) -> Result<Self> {
+    pub fn new(config: Arc<PlatformConfig>) -> Result<Self> {
         Ok(Self {
             config,
             market_providers: None,
@@ -36,26 +36,27 @@ impl Platform {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let market_types: Vec<MarketType> =
-            self.config
-                .get("markets")
-                .map_err(|e| PlatformError::ConfigError {
-                    message: format!("Failed to get market types: {}", e),
-                })?;
+        let market_types: Vec<MarketType> = self.config.markets.clone();
 
         let mut market_providers: HashMap<MarketType, Arc<dyn MarketProvider>> = HashMap::new();
         let mut trade_providers: HashMap<MarketType, Arc<dyn TradeProvider>> = HashMap::new();
         for market_type in market_types {
             match market_type {
                 MarketType::BinanceSpot => {
-                    let mut market_provider = BinanceSpotMarketProvider::new(self.config.clone())?;
+                    let mut market_provider = BinanceSpotMarketProvider::new(
+                        self.config.configs[&MarketType::BinanceSpot].clone(),
+                        self.config.proxy.clone(),
+                    )?;
                     market_provider.init().await?;
                     market_providers.insert(
                         MarketType::BinanceSpot,
                         Arc::new(market_provider) as Arc<dyn MarketProvider>,
                     );
 
-                    let mut trade_provider = BinanceSpotTradeProvider::new(self.config.clone())?;
+                    let mut trade_provider = BinanceSpotTradeProvider::new(
+                        self.config.configs[&MarketType::BinanceSpot].clone(),
+                        self.config.proxy.clone(),
+                    )?;
                     trade_provider.init().await?;
                     trade_providers.insert(
                         MarketType::BinanceSpot,
@@ -82,12 +83,7 @@ impl Platform {
         self.market_data_manager = Some(Arc::new(market_data_manager));
         self.trade_data_manager = Some(Arc::new(trade_data_manager));
 
-        let db_path: String =
-            self.config
-                .get("db_path")
-                .map_err(|e| PlatformError::ConfigError {
-                    message: format!("db_path not found: {}", e),
-                })?;
+        let db_path: String = self.config.db_path.clone();
         self.db = Some(Arc::new(SQLiteDB::new(&db_path).map_err(|e| {
             PlatformError::PlatformError {
                 message: format!("connect db: {} err: {}", db_path, e),

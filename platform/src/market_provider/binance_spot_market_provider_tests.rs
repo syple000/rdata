@@ -1,9 +1,9 @@
 use crate::{
-    config::Config,
+    config::{Config, PlatformConfig},
     market_provider::{binance_spot_market_provider::BinanceSpotMarketProvider, MarketProvider},
     models::{
         DepthData, GetDepthRequest, GetExchangeInfoRequest, GetKlinesRequest, GetTicker24hrRequest,
-        GetTradesRequest, KlineInterval,
+        GetTradesRequest, KlineInterval, MarketType,
     },
 };
 use env_logger::Env;
@@ -19,22 +19,34 @@ async fn test_binance_spot_market_provider() {
         .is_test(true)
         .try_init();
 
-    // Create temporary config file
     let config_content = r#"
     {
+        "markets": ["binance_spot"],
+        "db_path": "test_db_path",
         "binance_spot": {
+            "cache_capacity": 100,
+            "market_refresh_interval_secs": 30,
+            "trade_refresh_interval_secs": 5,
             "api_base_url": "https://api.binance.com",
             "stream_base_url": "wss://stream.binance.com:9443/stream",
+            "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
+            "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",
+            "secret_key": "NgIxnbabjf6cTnPYZpyVDAP7UoVNm3wzhJcLh89FYWSA5SkXJlCZD0yDCQcA4R33",
             "subscribed_symbols": ["BTCUSDT", "ETHUSDT"],
             "subscribed_kline_intervals": ["1m", "5m"],
-            "api_rate_limits": [[1000, 10], [60000, 500]],
-            "stream_rate_limits": [[1000, 10]],
+            "api_rate_limits": [[1000, 500], [60000, 5000]],
+            "stream_rate_limits": [[1000, 500]],
+            "stream_api_rate_limits": [[1000, 500]],
             "kline_event_channel_capacity": 5000,
             "trade_event_channel_capacity": 5000,
             "depth_event_channel_capacity": 5000,
             "ticker_event_channel_capacity": 5000,
             "depth_cache_channel_capacity": 5000,
+            "order_event_channel_capacity": 5000,
+            "user_trade_event_channel_capacity": 5000,
+            "account_event_channel_capacity": 5000,
             "stream_reconnect_interval_milli_secs": 3000,
+            "stream_api_reconnect_interval_milli_secs": 3000,
             "api_timeout_milli_secs": 30000
         },
         "proxy": {
@@ -42,16 +54,19 @@ async fn test_binance_spot_market_provider() {
         }
     }
     "#;
-
     let mut config_file = NamedTempFile::new().unwrap();
     std::io::Write::write_all(&mut config_file, config_content.as_bytes()).unwrap();
     let config_path = config_file.path().to_str().unwrap();
+    let config = Config::from_json(config_path).unwrap();
 
-    // Load config
-    let config = Arc::new(Config::from_json(config_path).unwrap());
+    let platform_config = PlatformConfig::from_config(config).unwrap();
 
     // Initialize provider
-    let mut provider = BinanceSpotMarketProvider::new(config).unwrap();
+    let mut provider = BinanceSpotMarketProvider::new(
+        platform_config.configs[&MarketType::BinanceSpot].clone(),
+        platform_config.proxy.clone(),
+    )
+    .unwrap();
     provider.init().await.unwrap();
 
     info!("Initialized BinanceSpotMarketProvider for testing.");

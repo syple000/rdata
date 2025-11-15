@@ -1,6 +1,6 @@
 use super::MarketDataManager;
 use crate::{
-    config::Config,
+    config::PlatformConfig,
     errors::{PlatformError, Result},
     market_provider::MarketProvider,
     models::{
@@ -80,17 +80,10 @@ pub struct MarketData {
 
 impl MarketData {
     pub fn new(
-        config: Arc<Config>,
+        config: Arc<PlatformConfig>,
         market_providers: Arc<HashMap<MarketType, Arc<dyn MarketProvider>>>,
     ) -> Result<Self> {
-        let market_types: Arc<Vec<MarketType>> =
-            Arc::new(
-                config
-                    .get("markets")
-                    .map_err(|e| PlatformError::DataManagerError {
-                        message: format!("data_manager markets not found: {}", e),
-                    })?,
-            );
+        let market_types: Arc<Vec<MarketType>> = Arc::new(config.markets.clone());
 
         let mut klines = HashMap::new();
         let mut trades = HashMap::new();
@@ -99,46 +92,15 @@ impl MarketData {
         let mut symbol_infos = HashMap::new();
         let mut refresh_intervals = HashMap::new();
         for market_type in market_types.iter() {
-            let refresh_interval: u64 = config
-                .get(&format!(
-                    "{}.market_refresh_interval_secs",
-                    market_type.as_str()
-                ))
-                .unwrap_or(600);
+            let refresh_interval: u64 = config.configs[market_type].market_refresh_interval_secs;
             refresh_intervals.insert(market_type.clone(), Duration::from_secs(refresh_interval));
 
-            let cache_capacity: usize = config
-                .get(&format!("{}.cache_capacity", market_type.as_str()))
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!(
-                        "data_manager {} cache_capacity not found: {}",
-                        market_type.as_str(),
-                        e
-                    ),
-                })?;
+            let cache_capacity: usize = config.configs[market_type].cache_capacity;
+            let symbols: Vec<String> = config.configs[market_type].subscribed_symbols.clone();
 
-            let symbols: Vec<String> = config
-                .get(&format!("{}.subscribed_symbols", market_type.as_str()))
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!(
-                        "data_manager {} symbols not found: {}",
-                        market_type.as_str(),
-                        e
-                    ),
-                })?;
-
-            let kline_intervals: Vec<KlineInterval> = config
-                .get(&format!(
-                    "{}.subscribed_kline_intervals",
-                    market_type.as_str()
-                ))
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!(
-                        "data_manager {} kline_intervals not found: {}",
-                        market_type.as_str(),
-                        e
-                    ),
-                })?;
+            let kline_intervals: Vec<KlineInterval> = config.configs[market_type]
+                .subscribed_kline_intervals
+                .clone();
 
             for symbol in symbols {
                 for interval in &kline_intervals {

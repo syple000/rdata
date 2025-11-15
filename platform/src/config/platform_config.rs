@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::models::KlineInterval;
 use crate::{
     errors::{PlatformError, Result},
     models::MarketType,
@@ -54,7 +55,7 @@ pub struct MarketConfig {
     pub secret_key: String,
 
     pub subscribed_symbols: Vec<String>,
-    pub subscribed_kline_intervals: Vec<String>,
+    pub subscribed_kline_intervals: Vec<KlineInterval>,
 
     // rate_limiter全局配置，在config中完成初始化
     pub api_rate_limits: Option<Vec<(u64, u64)>>,
@@ -97,6 +98,7 @@ pub struct MarketConfig {
 pub struct PlatformConfig {
     pub markets: Vec<MarketType>,
     pub proxy: Option<Proxy>,
+    pub db_path: String,
     pub configs: HashMap<MarketType, Arc<MarketConfig>>,
 }
 
@@ -109,6 +111,11 @@ impl PlatformConfig {
                     message: format!("get markets err: {}", e),
                 })?;
         let proxy: Option<Proxy> = config.get("proxy").unwrap_or(None);
+        let db_path: String = config
+            .get("db_path")
+            .map_err(|e| PlatformError::ConfigError {
+                message: format!("get db_path err: {}", e),
+            })?;
         let mut configs: HashMap<MarketType, Arc<MarketConfig>> = HashMap::new();
         for market_type in &markets {
             let mut market_config: MarketConfig =
@@ -155,6 +162,7 @@ impl PlatformConfig {
         Ok(Self {
             markets,
             proxy,
+            db_path,
             configs,
         })
     }
@@ -171,11 +179,12 @@ mod tests {
         let config_content = r#"
     {
         "markets": ["binance_spot"],
+        "db_path": "test_db_path",
         "binance_spot": {
             "cache_capacity": 100,
             "market_refresh_interval_secs": 30,
             "trade_refresh_interval_secs": 5,
-            "api_base_url": "https://api.binance.com",
+            "api_base_url": "https://testnet.binance.vision",
             "stream_base_url": "wss://stream.binance.com:9443/stream",
             "stream_api_base_url": "wss://ws-api.testnet.binance.vision/ws-api/v3",
             "api_key": "GMh8WTFiTiRPpbt1EFwYaDEunKN9gJy9qgRyYF8irvSYCdgjYcIaACDeyfKFOMcq",

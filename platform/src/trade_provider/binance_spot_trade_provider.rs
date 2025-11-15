@@ -1,5 +1,5 @@
 use crate::{
-    config::Config,
+    config::{MarketConfig, Proxy},
     errors::{PlatformError, Result},
     models::{
         Account, AccountUpdate, CancelOrderRequest, GetAllOrdersRequest, GetOpenOrdersRequest,
@@ -22,7 +22,8 @@ use tokio_util::sync::CancellationToken;
 use ws::WsError;
 
 pub struct BinanceSpotTradeProvider {
-    config: Arc<Config>,
+    config: Arc<MarketConfig>,
+    proxy: Option<Proxy>,
     api_rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     stream_rate_limiters: Option<Arc<Vec<RateLimiter>>>,
 
@@ -40,42 +41,13 @@ pub struct BinanceSpotTradeProvider {
 }
 
 impl BinanceSpotTradeProvider {
-    pub fn new(config: Arc<Config>) -> Result<Self> {
-        let api_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance_spot.api_rate_limits").ok();
-        let api_rate_limiters = api_rate_limits.map(|limits| {
-            Arc::new(
-                limits
-                    .into_iter()
-                    .map(|(duration, limit)| {
-                        RateLimiter::new(Duration::from_millis(duration), limit)
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        });
+    pub fn new(config: Arc<MarketConfig>, proxy: Option<Proxy>) -> Result<Self> {
+        let api_rate_limiters = config.api_rate_limiters.clone();
+        let stream_rate_limiters = config.stream_rate_limiters.clone();
 
-        let stream_rate_limits: Option<Vec<(u64, u64)>> =
-            config.get("binance_spot.stream_api_rate_limits").ok();
-        let stream_rate_limiters = stream_rate_limits.map(|limits| {
-            Arc::new(
-                limits
-                    .into_iter()
-                    .map(|(duration, limit)| {
-                        RateLimiter::new(Duration::from_millis(duration), limit)
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        });
-
-        let order_chan_cap = config
-            .get("binance_spot.order_event_channel_capacity")
-            .unwrap_or(5000);
-        let user_trade_chan_cap = config
-            .get("binance_spot.user_trade_event_channel_capacity")
-            .unwrap_or(5000);
-        let account_chan_cap = config
-            .get("binance_spot.account_event_channel_capacity")
-            .unwrap_or(5000);
+        let order_chan_cap = config.order_event_channel_capacity;
+        let user_trade_chan_cap = config.user_trade_event_channel_capacity;
+        let account_chan_cap = config.account_event_channel_capacity;
 
         let (order_sender, order_receiver) = broadcast::channel(order_chan_cap);
         let (user_trade_sender, user_trade_receiver) = broadcast::channel(user_trade_chan_cap);
@@ -83,6 +55,7 @@ impl BinanceSpotTradeProvider {
 
         Ok(Self {
             config,
+            proxy,
             api_rate_limiters,
             stream_rate_limiters,
             trade_api: None,
@@ -99,34 +72,15 @@ impl BinanceSpotTradeProvider {
 }
 
 fn create_trade_api(
-    config: Arc<Config>,
+    config: Arc<MarketConfig>,
+    proxy: Option<Proxy>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
 ) -> Result<TradeApi> {
-    let base_url: String =
-        config
-            .get("binance_spot.api_base_url")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get api_base_url: {}", e),
-            })?;
-    let proxy_url: Option<String> = config.get("proxy.url").ok();
-    let timeout_milli_secs: u64 =
-        config
-            .get("binance_spot.api_timeout_milli_secs")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get api_timeout_milli_secs: {}", e),
-            })?;
-    let api_key: String =
-        config
-            .get("binance_spot.api_key")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get api_key: {}", e),
-            })?;
-    let secret_key: String =
-        config
-            .get("binance_spot.secret_key")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get secret_key: {}", e),
-            })?;
+    let base_url: String = config.api_base_url.clone();
+    let proxy_url: Option<String> = proxy.as_ref().map(|p| p.url.clone());
+    let timeout_milli_secs: u64 = config.api_timeout_milli_secs;
+    let api_key: String = config.api_key.clone();
+    let secret_key: String = config.secret_key.clone();
 
     let mut trade_api = TradeApi::new(
         base_url,
@@ -146,31 +100,17 @@ fn create_trade_api(
 }
 
 async fn create_trade_stream(
-    config: Arc<Config>,
+    config: Arc<MarketConfig>,
+    proxy: Option<Proxy>,
     rate_limiters: Option<Arc<Vec<RateLimiter>>>,
     order_sender: broadcast::Sender<Order>,
     user_trade_sender: broadcast::Sender<UserTrade>,
     account_update_sender: broadcast::Sender<AccountUpdate>,
 ) -> Result<TradeStream> {
-    let stream_api_base_url: String =
-        config
-            .get("binance_spot.stream_api_base_url")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get stream_api_base_url: {}", e),
-            })?;
-    let proxy_url: Option<String> = config.get("proxy.url").ok();
-    let api_key: String =
-        config
-            .get("binance_spot.api_key")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get api_key: {}", e),
-            })?;
-    let secret_key: String =
-        config
-            .get("binance_spot.secret_key")
-            .map_err(|e| PlatformError::ConfigError {
-                message: format!("Failed to get secret_key: {}", e),
-            })?;
+    let stream_api_base_url: String = config.stream_api_base_url.clone();
+    let proxy_url: Option<String> = proxy.as_ref().map(|p| p.url.clone());
+    let api_key: String = config.api_key.clone();
+    let secret_key: String = config.secret_key.clone();
 
     let mut trade_stream = TradeStream::new(
         stream_api_base_url,
@@ -229,11 +169,13 @@ impl TradeProvider for BinanceSpotTradeProvider {
     async fn init(&mut self) -> Result<()> {
         let trade_api = Arc::new(create_trade_api(
             self.config.clone(),
+            self.proxy.clone(),
             self.api_rate_limiters.clone(),
         )?);
 
         let trade_stream = create_trade_stream(
             self.config.clone(),
+            self.proxy.clone(),
             self.stream_rate_limiters.clone(),
             self.order_sender.clone(),
             self.user_trade_sender.clone(),
@@ -247,14 +189,13 @@ impl TradeProvider for BinanceSpotTradeProvider {
         let shutdown_token = self.shutdown_token.clone();
         let trade_stream = self.trade_stream.as_ref().unwrap().clone();
         let config = self.config.clone();
+        let proxy = self.proxy.clone();
         let stream_rate_limiters = self.stream_rate_limiters.clone();
         let order_sender = self.order_sender.clone();
         let user_trade_sender = self.user_trade_sender.clone();
         let account_update_sender = self.account_update_sender.clone();
         tokio::spawn(async move {
-            let retry_interval = config
-                .get::<u64>("binance_spot.stream_reconnect_interval_milli_secs")
-                .unwrap_or(3000);
+            let retry_interval = config.stream_api_reconnect_interval_milli_secs;
             let mut latest_retry_ts = 0u64;
             loop {
                 let stream_shutdown_token = trade_stream
@@ -274,6 +215,7 @@ impl TradeProvider for BinanceSpotTradeProvider {
                         latest_retry_ts = now;
                         let new_stream = create_trade_stream(
                             config.clone(),
+                            proxy.clone(),
                             stream_rate_limiters.clone(),
                             order_sender.clone(),
                             user_trade_sender.clone(),

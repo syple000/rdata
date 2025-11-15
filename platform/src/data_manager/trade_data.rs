@@ -1,6 +1,6 @@
 use super::TradeDataManager;
 use crate::{
-    config::Config,
+    config::PlatformConfig,
     errors::{PlatformError, Result},
     models::{
         Account, AccountUpdate, Balance, CancelOrderRequest, GetAllOrdersRequest,
@@ -36,23 +36,11 @@ pub struct TradeData {
 
 impl TradeData {
     pub fn new(
-        config: Arc<Config>,
+        config: Arc<PlatformConfig>,
         trade_providers: Arc<HashMap<MarketType, Arc<dyn TradeProvider>>>,
     ) -> Result<Self> {
-        let market_types: Arc<Vec<MarketType>> =
-            Arc::new(
-                config
-                    .get("markets")
-                    .map_err(|e| PlatformError::DataManagerError {
-                        message: format!("data_manager market_types not found: {}", e),
-                    })?,
-            );
-        let db_path: String =
-            config
-                .get("db_path")
-                .map_err(|e| PlatformError::DataManagerError {
-                    message: format!("data_manager db_path not found: {}", e),
-                })?;
+        let market_types: Arc<Vec<MarketType>> = Arc::new(config.markets.clone());
+        let db_path: String = config.db_path.clone();
 
         let mut accounts = HashMap::new();
         let mut stats = HashMap::new();
@@ -68,12 +56,7 @@ impl TradeData {
             refresh_intervals.insert(
                 market_type.clone(),
                 Duration::from_secs(
-                    config
-                        .get::<u64>(&format!(
-                            "{}.trade_refresh_interval_secs",
-                            market_type.as_str()
-                        ))
-                        .unwrap_or(600),
+                    config.configs[&MarketType::BinanceSpot].trade_refresh_interval_secs,
                 ),
             );
         }
