@@ -1,6 +1,7 @@
 pub mod config;
 pub mod conversions;
 pub mod data_manager;
+pub mod engines;
 pub mod errors;
 pub mod market_provider;
 pub mod models;

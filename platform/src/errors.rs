@@ -14,6 +14,9 @@ pub enum PlatformError {
     #[error("Data manager error: {message}")]
     DataManagerError { message: String },
 
+    #[error("Engine error: {message}")]
+    EngineError { message: String },
+
     #[error("Factor error: {message}")]
     FactorError { message: String },
 

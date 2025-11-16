@@ -3,12 +3,11 @@ use crate::{
     data_manager::{
         market_data::MarketData, trade_data::TradeData, MarketDataManager, TradeDataManager,
     },
-    errors::{PlatformError, Result},
+    errors::Result,
     market_provider::{BinanceSpotMarketProvider, MarketProvider},
     models::MarketType,
     trade_provider::{BinanceSpotTradeProvider, TradeProvider},
 };
-use db::sqlite::SQLiteDB;
 use std::{collections::HashMap, sync::Arc};
 
 pub struct Platform {
@@ -19,8 +18,6 @@ pub struct Platform {
 
     market_data_manager: Option<Arc<dyn MarketDataManager>>,
     trade_data_manager: Option<Arc<dyn TradeDataManager>>,
-
-    db: Option<Arc<SQLiteDB>>,
 }
 
 impl Platform {
@@ -31,7 +28,6 @@ impl Platform {
             trade_providers: None,
             market_data_manager: None,
             trade_data_manager: None,
-            db: None,
         })
     }
 
@@ -82,13 +78,6 @@ impl Platform {
 
         self.market_data_manager = Some(Arc::new(market_data_manager));
         self.trade_data_manager = Some(Arc::new(trade_data_manager));
-
-        let db_path: String = self.config.db_path.clone();
-        self.db = Some(Arc::new(SQLiteDB::new(&db_path).map_err(|e| {
-            PlatformError::PlatformError {
-                message: format!("connect db: {} err: {}", db_path, e),
-            }
-        })?));
 
         Ok(())
     }
