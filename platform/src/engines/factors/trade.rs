@@ -32,14 +32,14 @@ pub struct TradeFactors {
     pub net_buy_ratio: f64,   // 净主动买入比例: sum(buy_vol) / sum(buy_vol + sell_vol + 1e-10)
     pub avg_trade_size_ratio: f64, // 买卖平均单量对比
 
-    // 价量
+    // 价量因子
     pub vwap: f64,                     // 成交量加权平均价
     pub price_vwap_deviation: f64,     // 最新价格与VWAP的偏离
     pub vwap_slope: f64,               // vwap斜率，最近N条的vwap 和 往前N条的vwap 的变化率
     pub obv: f64,                      // On-Balance Vol，价格上涨加本次成交量，下跌减本次成交量
     pub price_volume_correlation: f64, // 价格与成交量的相关系数
 
-    // 时间序列
+    // 时间序列因子
     pub trade_frequency: f64,    // 单位时间内的成交次数
     pub avg_trade_interval: f64, // 平均成交间隔时间
     pub trade_interval_std: f64, // 成交间隔时间标准差
@@ -50,8 +50,6 @@ struct PrecomputedData {
     prices: Vec<f64>,
     volumes: Vec<f64>,
     timestamps: Vec<u64>,
-    #[allow(dead_code)]
-    is_buyer_makers: Vec<bool>,
 
     // 价格统计
     price_mean: f64,
@@ -62,8 +60,6 @@ struct PrecomputedData {
 
     // 成交量统计
     vol_mean: f64,
-    #[allow(dead_code)]
-    vol_sum: f64,
 
     // 买卖统计
     buy_count: u64,
@@ -143,14 +139,12 @@ impl PrecomputedData {
             prices,
             volumes,
             timestamps,
-            is_buyer_makers,
             price_mean,
             price_min,
             price_max,
             price_first,
             price_last,
             vol_mean,
-            vol_sum,
             buy_count,
             sell_count,
             buy_vol,
