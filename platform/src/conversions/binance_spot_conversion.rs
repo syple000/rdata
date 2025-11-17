@@ -18,7 +18,7 @@ impl From<ex_models::KlineData> for KlineData {
             close: value.close,
             volume: value.volume,
             quote_volume: value.quote_volume,
-            is_closed: value.is_closed,
+            is_closed: if value.is_closed { 1 } else { 0 },
         }
     }
 }
@@ -73,7 +73,7 @@ impl From<ex_models::AggTrade> for Trade {
             price: value.price,
             quantity: value.quantity,
             timestamp: value.timestamp,
-            is_buyer_maker: value.is_buyer_maker,
+            is_buyer_maker: if value.is_buyer_maker { 1 } else { 0 },
             seq_id: value.agg_trade_id,
         }
     }
@@ -511,7 +511,7 @@ mod tests {
         let platform_kline: KlineData = ex_kline.into();
         assert_eq!(platform_kline.symbol, "BTCUSDT");
         assert_eq!(platform_kline.open, dec!(100.0));
-        assert_eq!(platform_kline.is_closed, true);
+        assert_eq!(platform_kline.is_closed, 1);
     }
 
     #[test]

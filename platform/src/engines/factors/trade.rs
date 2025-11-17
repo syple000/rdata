@@ -109,7 +109,7 @@ impl PrecomputedData {
             weighted_price_sum += price * volume;
 
             // 买单做市提供流动性，说明吃单方向是卖单
-            if is_buyer_maker {
+            if is_buyer_maker == 1 {
                 sell_count += 1;
                 sell_vol += volume;
             } else {

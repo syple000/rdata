@@ -14,7 +14,7 @@ pub struct KlineData {
     pub close: Decimal,
     pub volume: Decimal,
     pub quote_volume: Decimal,
-    pub is_closed: bool,
+    pub is_closed: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +57,7 @@ pub struct Trade {
     pub price: Decimal,
     pub quantity: Decimal,
     pub timestamp: u64,
-    pub is_buyer_maker: bool,
+    pub is_buyer_maker: u64,
     pub seq_id: u64, // 验证交易所推送是否缺失，如果没有该值（默认0）
 }
 
