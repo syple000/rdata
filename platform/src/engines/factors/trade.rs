@@ -1,6 +1,11 @@
-use crate::models::Trade;
+use crate::{
+    errors::{PlatformError, Result},
+    models::Trade,
+};
 use rust_decimal::prelude::ToPrimitive;
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeFactors {
     // 价格动量因子
     pub price_return: f64,       // 1. 价格变化率：最新价格/最早价格
@@ -75,10 +80,6 @@ struct PrecomputedData {
 
 impl PrecomputedData {
     fn new(trades: &[Trade]) -> Self {
-        if trades.is_empty() {
-            return Self::empty();
-        }
-
         let n = trades.len();
         let mut prices = Vec::with_capacity(n);
         let mut volumes = Vec::with_capacity(n);
@@ -111,11 +112,12 @@ impl PrecomputedData {
             price_max = price_max.max(price);
             weighted_price_sum += price * volume;
 
+            // 买单做市提供流动性，说明吃单方向是卖单
             if is_buyer_maker {
-                sell_count += 1; // buyer是taker，所以这是卖单
+                sell_count += 1;
                 sell_vol += volume;
             } else {
-                buy_count += 1; // seller是taker，所以这是买单
+                buy_count += 1;
                 buy_vol += volume;
             }
         }
@@ -157,45 +159,15 @@ impl PrecomputedData {
             time_span,
         }
     }
-
-    fn empty() -> Self {
-        Self {
-            prices: Vec::new(),
-            volumes: Vec::new(),
-            timestamps: Vec::new(),
-            is_buyer_makers: Vec::new(),
-            price_mean: 0.0,
-            price_min: 0.0,
-            price_max: 0.0,
-            price_first: 0.0,
-            price_last: 0.0,
-            vol_mean: 0.0,
-            vol_sum: 0.0,
-            buy_count: 0,
-            sell_count: 0,
-            buy_vol: 0.0,
-            sell_vol: 0.0,
-            vwap: 0.0,
-            time_span: 0.0,
-        }
-    }
 }
 
 /// 1. 价格变化率：最新价格/最早价格 - 1
 fn calc_price_return(data: &PrecomputedData) -> f64 {
-    if data.price_first > 0.0 {
-        (data.price_last / data.price_first) - 1.0
-    } else {
-        0.0
-    }
+    (data.price_last / (data.price_first + 1e-10)) - 1.0
 }
 
 /// 2. 价格趋势强度：(上涨次数 - 下跌次数) / 总变化次数
 fn calc_trend_strength(data: &PrecomputedData) -> f64 {
-    if data.prices.len() < 2 {
-        return 0.0;
-    }
-
     let mut up_count = 0;
     let mut down_count = 0;
 
@@ -209,11 +181,7 @@ fn calc_trend_strength(data: &PrecomputedData) -> f64 {
     }
 
     let total = (data.prices.len() - 1) as f64;
-    if total > 0.0 {
-        (up_count as f64 - down_count as f64) / total
-    } else {
-        0.0
-    }
+    (up_count as f64 - down_count as f64) / total
 }
 
 /// 3. 价格波动率：标准差
@@ -223,19 +191,11 @@ fn calc_price_volatility(data: &PrecomputedData) -> f64 {
 
 /// 4. 价格区间幅度: (max_price - min_price) / mean_price
 fn calc_price_range(data: &PrecomputedData) -> f64 {
-    if data.price_mean > 0.0 {
-        (data.price_max - data.price_min) / data.price_mean
-    } else {
-        0.0
-    }
+    (data.price_max - data.price_min) / (data.price_mean + 1e-10)
 }
 
 /// 5. 价格加速度：对价格变化率再求变化的平均值
 fn calc_price_acceleration(data: &PrecomputedData) -> f64 {
-    if data.prices.len() < 3 {
-        return 0.0;
-    }
-
     // 先计算一阶差分（速度）
     let mut first_diff = Vec::with_capacity(data.prices.len() - 1);
     for i in 1..data.prices.len() {
@@ -248,11 +208,7 @@ fn calc_price_acceleration(data: &PrecomputedData) -> f64 {
         second_diff_sum += first_diff[i] - first_diff[i - 1];
     }
 
-    if first_diff.len() > 1 {
-        second_diff_sum / (first_diff.len() - 1) as f64
-    } else {
-        0.0
-    }
+    second_diff_sum / (first_diff.len() - 1) as f64
 }
 
 /// 6. 价格位置：(最新价格 - min_price) / (max_price - min_price)
@@ -277,16 +233,8 @@ fn calc_vol_volatility(data: &PrecomputedData) -> f64 {
 
 /// 成交量偏度：衡量成交量分布的对称性
 fn calc_vol_skew(data: &PrecomputedData) -> f64 {
-    if data.volumes.is_empty() {
-        return 0.0;
-    }
-
     let mean = data.vol_mean;
     let std = calc_vol_volatility(data);
-
-    if std < 1e-10 {
-        return 0.0;
-    }
 
     let mut skew_sum = 0.0;
     for &vol in &data.volumes {
@@ -300,26 +248,17 @@ fn calc_vol_skew(data: &PrecomputedData) -> f64 {
 
 /// 大单比例：成交量 > 1.5倍平均的交易数 / 总交易数
 fn calc_large_trade_ratio(data: &PrecomputedData) -> f64 {
-    if data.volumes.is_empty() {
-        return 0.0;
-    }
-
     let threshold = data.vol_mean * 1.5;
     let large_count = data.volumes.iter().filter(|&&v| v > threshold).count();
 
     large_count as f64 / data.volumes.len() as f64
 }
 
-/// 成交量趋势：最近N/2条的平均成交量 / 前N/2条的平均成交量
+/// 成交量趋势：最近10条的平均成交量 / 10条前的平均成交量
 fn calc_vol_trend(data: &PrecomputedData) -> f64 {
     let n = data.volumes.len();
-    if n < 4 {
-        return 1.0;
-    }
-
-    let mid = n / 2;
-    let first_half_avg: f64 = data.volumes[..mid].iter().sum::<f64>() / mid as f64;
-    let second_half_avg: f64 = data.volumes[mid..].iter().sum::<f64>() / (n - mid) as f64;
+    let first_half_avg: f64 = data.volumes[..n - 10].iter().sum::<f64>() / (n - 10) as f64;
+    let second_half_avg: f64 = data.volumes[n - 10..].iter().sum::<f64>() / 10.0;
 
     if first_half_avg > 0.0 {
         second_half_avg / first_half_avg
@@ -381,11 +320,6 @@ fn calc_avg_trade_size_ratio(data: &PrecomputedData) -> f64 {
     }
 }
 
-/// VWAP（已在预计算中）
-fn calc_vwap(data: &PrecomputedData) -> f64 {
-    data.vwap
-}
-
 /// 最新价格与VWAP的偏离: (price_last - vwap) / vwap
 fn calc_price_vwap_deviation(data: &PrecomputedData) -> f64 {
     if data.vwap > 0.0 {
@@ -395,19 +329,14 @@ fn calc_price_vwap_deviation(data: &PrecomputedData) -> f64 {
     }
 }
 
-/// VWAP斜率：最近N/2条的VWAP与前N/2条的VWAP的变化率
+/// VWAP斜率：最近10条的VWAP与前20-10条的VWAP的变化率
 fn calc_vwap_slope(data: &PrecomputedData) -> f64 {
     let n = data.prices.len();
-    if n < 4 {
-        return 0.0;
-    }
-
-    let mid = n / 2;
 
     // 计算前半段VWAP
     let mut first_weighted_sum = 0.0;
     let mut first_vol_sum = 0.0;
-    for i in 0..mid {
+    for i in n - 20..n - 10 {
         first_weighted_sum += data.prices[i] * data.volumes[i];
         first_vol_sum += data.volumes[i];
     }
@@ -420,7 +349,7 @@ fn calc_vwap_slope(data: &PrecomputedData) -> f64 {
     // 计算后半段VWAP
     let mut second_weighted_sum = 0.0;
     let mut second_vol_sum = 0.0;
-    for i in mid..n {
+    for i in n - 10..n {
         second_weighted_sum += data.prices[i] * data.volumes[i];
         second_vol_sum += data.volumes[i];
     }
@@ -477,11 +406,7 @@ fn calc_price_volume_correlation(data: &PrecomputedData) -> f64 {
     }
 
     let denominator = (price_var * vol_var).sqrt();
-    if denominator > 1e-10 {
-        covariance / denominator
-    } else {
-        0.0
-    }
+    covariance / (denominator + 1e-10)
 }
 
 /// 交易频率：单位时间（秒）内的成交次数
@@ -530,43 +455,16 @@ fn calc_std(values: &[f64], mean: f64) -> f64 {
     variance.sqrt()
 }
 
-pub fn calc_trade_factors(trades: &[Trade]) -> TradeFactors {
-    if trades.is_empty() {
-        return TradeFactors {
-            price_return: 0.0,
-            trend_strength: 0.0,
-            price_volatility: 0.0,
-            price_range: 0.0,
-            price_acceleration: 0.0,
-            price_position: 0.0,
-            avg_vol: 0.0,
-            vol_volatility: 0.0,
-            vol_skew: 0.0,
-            large_trade_ratio: 0.0,
-            vol_trend: 0.0,
-            buy_count: 0,
-            sell_count: 0,
-            trade_imbalance: 0.0,
-            buy_vol: 0.0,
-            sell_vol: 0.0,
-            vol_imbalance: 0.0,
-            net_buy_ratio: 0.0,
-            avg_trade_size_ratio: 0.0,
-            vwap: 0.0,
-            price_vwap_deviation: 0.0,
-            vwap_slope: 0.0,
-            obv: 0.0,
-            price_volume_correlation: 0.0,
-            trade_frequency: 0.0,
-            avg_trade_interval: 0.0,
-            trade_interval_std: 0.0,
-        };
+pub fn calc_trade_factors(trades: &[Trade]) -> Result<TradeFactors> {
+    if trades.len() < 20 {
+        return Err(PlatformError::FactorError {
+            message: format!("Not enough trades to calculate factors"),
+        });
     }
 
-    // 预计算共享数据，优化性能
     let data = PrecomputedData::new(trades);
 
-    TradeFactors {
+    Ok(TradeFactors {
         // 价格动量因子
         price_return: calc_price_return(&data),
         trend_strength: calc_trend_strength(&data),
@@ -593,7 +491,7 @@ pub fn calc_trade_factors(trades: &[Trade]) -> TradeFactors {
         avg_trade_size_ratio: calc_avg_trade_size_ratio(&data),
 
         // 价量因子
-        vwap: calc_vwap(&data),
+        vwap: data.vwap,
         price_vwap_deviation: calc_price_vwap_deviation(&data),
         vwap_slope: calc_vwap_slope(&data),
         obv: calc_obv(&data),
@@ -603,5 +501,5 @@ pub fn calc_trade_factors(trades: &[Trade]) -> TradeFactors {
         trade_frequency: calc_trade_frequency(&data),
         avg_trade_interval: calc_avg_trade_interval(&data),
         trade_interval_std: calc_trade_interval_std(&data),
-    }
+    })
 }
