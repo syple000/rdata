@@ -3,6 +3,7 @@ pub mod conversions;
 pub mod data_manager;
 pub mod engines;
 pub mod errors;
+pub mod factors;
 pub mod market_dump;
 pub mod market_provider;
 pub mod models;
