@@ -283,6 +283,13 @@ async fn fetch_1m_klines(
                         if klines.is_empty() {
                             break;
                         }
+                        log::info!(
+                            "Fetched {} 1m klines for {} {} starting from {}",
+                            klines.len(),
+                            market_type_clone.as_str(),
+                            symbol_clone,
+                            from_open_time
+                        );
                         let last_open_time = klines.last().unwrap().open_time;
                         let res = _update_kline_data(db_clone.clone(), &market_type_clone, &klines);
                         if res.is_err() {
@@ -357,6 +364,13 @@ async fn fetch_1s_klines(
                         if klines.is_empty() {
                             break;
                         }
+                        log::info!(
+                            "Fetched {} 1s klines for {} {} starting from {}",
+                            klines.len(),
+                            market_type_clone.as_str(),
+                            symbol_clone,
+                            from_open_time
+                        );
                         let last_open_time = klines.last().unwrap().open_time;
                         let res = _update_kline_data(db_clone.clone(), &market_type_clone, &klines);
                         if res.is_err() {
@@ -428,6 +442,13 @@ async fn fetch_trades(
                         if trades.is_empty() {
                             break;
                         }
+                        log::info!(
+                            "Fetched {} trades for {} {} starting from {:?}",
+                            trades.len(),
+                            market_type_clone.as_str(),
+                            symbol_clone,
+                            current_from_id
+                        );
                         let last_trade_id = trades.last().unwrap().trade_id.clone();
                         let last_timestamp = trades.last().unwrap().timestamp;
 
