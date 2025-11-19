@@ -1,3 +1,4 @@
+pub mod db;
 pub mod market_data;
 pub mod trade_data;
 pub mod traits;
@@ -7,3 +8,5 @@ pub use traits::{MarketDataManager, TradeDataManager};
 mod market_data_tests;
 #[cfg(test)]
 mod trade_data_tests;
+
+pub mod local_data_manager;
