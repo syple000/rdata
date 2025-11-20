@@ -173,15 +173,16 @@ pub fn get_klines(
     let start_time = start_time.unwrap_or(0);
     let end_time = end_time.unwrap_or(i64::MAX as u64);
     let limit = limit.unwrap_or(1000);
+    let order_direction = if start_time > 0 { "ASC" } else { "DESC" };
     let sql = format!(
         r#"
     SELECT symbol, interval, open_time, close_time, open, high, low, close, volume, quote_volume, is_closed
     FROM kline
     WHERE market_type = ? AND symbol = ? AND interval = ? AND open_time >= ? AND open_time <= ?
-    ORDER BY open_time DESC
+    ORDER BY open_time {}
     LIMIT {}; 
     "#,
-        limit
+        order_direction, limit
     );
     let values: Vec<String> = vec![
         market_type.as_str().to_string(),
@@ -216,15 +217,20 @@ pub fn get_trades(
     let end_time = end_time.unwrap_or(i64::MAX as u64);
     let from_seq_id = from_seq_id.unwrap_or(0);
     let limit = limit.unwrap_or(1000);
+    let order_direction = if start_time > 0 || from_seq_id > 0 {
+        "ASC"
+    } else {
+        "DESC"
+    };
     let sql = format!(
         r#"
     SELECT symbol, trade_id, price, quantity, timestamp, is_buyer_maker, seq_id
     FROM trade
     WHERE market_type = ? AND symbol = ? AND timestamp >= ? AND timestamp <= ? AND seq_id >= ?
-    ORDER BY seq_id DESC
+    ORDER BY seq_id {}
     LIMIT {};
     "#,
-        limit
+        order_direction, limit
     );
     let values: Vec<String> = vec![
         market_type.as_str().to_string(),
@@ -681,6 +687,7 @@ pub fn get_orders(
     let limit = limit.unwrap_or(1000);
     let start_time = start_time.unwrap_or(0);
     let end_time = end_time.unwrap_or(i64::MAX as u64);
+    let order_direction = if start_time > 0 { "ASC" } else { "DESC" };
     let query = format!(
         r#"
         SELECT symbol, order_id, client_order_id, order_side, order_type,
@@ -689,10 +696,10 @@ pub fn get_orders(
                create_time, update_time
         FROM orders
         WHERE market_type = ?1 AND symbol = ?2 and update_time >= {} AND update_time <= {}
-        ORDER BY update_time DESC
+        ORDER BY update_time {}
         LIMIT {}
     "#,
-        start_time, end_time, limit
+        start_time, end_time, order_direction, limit
     );
     let market_type_str = market_type.as_str().to_string();
     let params: Vec<&dyn rusqlite::ToSql> = vec![&market_type_str, &symbol];
@@ -815,16 +822,17 @@ pub fn get_user_trades(
     let limit = limit.unwrap_or(1000);
     let start_time = start_time.unwrap_or(0);
     let end_time = end_time.unwrap_or(i64::MAX as u64);
+    let order_direction = if start_time > 0 { "ASC" } else { "DESC" };
     let query = format!(
         r#"
         SELECT trade_id, order_id, symbol, order_side, trade_price,
                trade_quantity, commission, commission_asset, is_maker, timestamp
         FROM user_trades
         WHERE market_type = ?1 AND symbol = ?2 and timestamp >= {} AND timestamp <= {}
-        ORDER BY timestamp DESC
+        ORDER BY timestamp {}
         LIMIT {}
     "#,
-        start_time, end_time, limit
+        start_time, end_time, order_direction, limit
     );
     let market_type_str = market_type.as_str().to_string();
     let params: Vec<&dyn rusqlite::ToSql> = vec![&market_type_str, &symbol];
