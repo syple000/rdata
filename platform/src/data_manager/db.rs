@@ -202,6 +202,10 @@ pub fn get_klines(
         .map_err(|e| PlatformError::PlatformError {
             message: format!("Fail to into klines: {}", e),
         })
+        .map(|mut v| {
+            v.sort_by(|a, b| a.open_time.cmp(&b.open_time));
+            v
+        })
 }
 
 pub fn get_trades(
@@ -249,6 +253,10 @@ pub fn get_trades(
         .into_struct::<Trade>()
         .map_err(|e| PlatformError::PlatformError {
             message: format!("Fail to into trades: {}", e),
+        })
+        .map(|mut v| {
+            v.sort_by(|a, b| a.seq_id.cmp(&b.seq_id));
+            v
         })
 }
 
@@ -715,6 +723,10 @@ pub fn get_orders(
         .map_err(|e| PlatformError::DataManagerError {
             message: format!("get_orders into err: {}", e),
         })
+        .map(|mut v| {
+            v.sort_by(|a: &Order, b: &Order| a.update_time.cmp(&b.update_time));
+            v
+        })
 }
 
 pub fn get_order_by_client_id(
@@ -809,6 +821,10 @@ pub fn get_open_orders(db: Arc<SQLiteDB>, market_type: &MarketType) -> Result<Ve
         .map_err(|e| PlatformError::DataManagerError {
             message: format!("get_open_orders into err: {}", e),
         })
+        .map(|mut v| {
+            v.sort_by(|a: &Order, b: &Order| a.update_time.cmp(&b.update_time));
+            v
+        })
 }
 
 pub fn get_user_trades(
@@ -848,6 +864,10 @@ pub fn get_user_trades(
         .map_err(|e| PlatformError::DataManagerError {
             message: format!("get_user_trades into err: {}", e),
         })
+        .map(|mut v| {
+            v.sort_by(|a: &UserTrade, b: &UserTrade| a.timestamp.cmp(&b.timestamp));
+            v
+        })
 }
 
 pub fn get_user_trades_by_order(
@@ -876,6 +896,10 @@ pub fn get_user_trades_by_order(
         .into_struct()
         .map_err(|e| PlatformError::DataManagerError {
             message: format!("get_user_trades_by_order_ids into err: {}", e),
+        })
+        .map(|mut v| {
+            v.sort_by(|a: &UserTrade, b: &UserTrade| a.timestamp.cmp(&b.timestamp));
+            v
         })
 }
 
