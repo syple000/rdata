@@ -1,8 +1,8 @@
 use crate::{
     errors::{PlatformError, Result},
     models::{
-        Account, AccountUpdate, Balance, KlineData, KlineInterval, MarketType, Order, Trade,
-        UserTrade,
+        Account, AccountUpdate, Balance, KlineData, KlineInterval, MarketType, Order, SymbolInfo,
+        Trade, UserTrade,
     },
 };
 use db::{common::Row, sqlite::SQLiteDB};
@@ -10,6 +10,189 @@ use rusqlite::ToSql;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
+
+pub fn create_symbol_info_table(db: Arc<SQLiteDB>) -> Result<()> {
+    let sql = r#"
+    CREATE TABLE IF NOT EXISTS symbol_info (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        market_type TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        status TEXT NOT NULL,
+        base_asset TEXT NOT NULL,
+        quote_asset TEXT NOT NULL,
+        base_asset_precision INTEGER,
+        quote_asset_precision INTEGER,
+        min_price TEXT,
+        max_price TEXT,
+        price_tick_size TEXT,
+        min_market_quantity TEXT,
+        max_market_quantity TEXT,
+        market_quantity_step_size TEXT,
+        min_quantity TEXT,
+        max_quantity TEXT,
+        quantity_step_size TEXT,
+        min_notional TEXT,
+        UNIQUE(market_type, symbol)
+    );
+    "#;
+    db.execute_update(sql, &[])
+        .map_err(|e| PlatformError::PlatformError {
+            message: format!("Fail to create symbol_info table: {}", e),
+        })?;
+    Ok(())
+}
+
+pub fn update_symbol_info(
+    db: Arc<SQLiteDB>,
+    market_type: &MarketType,
+    symbol_infos: &[SymbolInfo],
+) -> Result<()> {
+    if symbol_infos.is_empty() {
+        return Ok(());
+    }
+
+    let placeholder = symbol_infos
+        .iter()
+        .map(|_| "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        r#"
+    INSERT INTO symbol_info (
+        market_type, symbol, status, base_asset, quote_asset,
+        base_asset_precision, quote_asset_precision,
+        min_price, max_price, price_tick_size,
+        min_market_quantity, max_market_quantity, market_quantity_step_size,
+        min_quantity, max_quantity, quantity_step_size, min_notional
+    )
+    VALUES {} 
+    ON CONFLICT(market_type, symbol) DO UPDATE SET
+        status=excluded.status,
+        base_asset=excluded.base_asset,
+        quote_asset=excluded.quote_asset,
+        base_asset_precision=excluded.base_asset_precision,
+        quote_asset_precision=excluded.quote_asset_precision,
+        min_price=excluded.min_price,
+        max_price=excluded.max_price,
+        price_tick_size=excluded.price_tick_size,
+        min_market_quantity=excluded.min_market_quantity,
+        max_market_quantity=excluded.max_market_quantity,
+        market_quantity_step_size=excluded.market_quantity_step_size,
+        min_quantity=excluded.min_quantity,
+        max_quantity=excluded.max_quantity,
+        quantity_step_size=excluded.quantity_step_size,
+        min_notional=excluded.min_notional;
+    "#,
+        placeholder
+    );
+
+    let values = symbol_infos
+        .iter()
+        .flat_map(|info| {
+            vec![
+                market_type.as_str().to_string(),
+                info.symbol.clone(),
+                info.status.as_str().to_string(),
+                info.base_asset.clone(),
+                info.quote_asset.clone(),
+                info.base_asset_precision
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.quote_asset_precision
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.min_price.map(|v| v.to_string()).unwrap_or_default(),
+                info.max_price.map(|v| v.to_string()).unwrap_or_default(),
+                info.price_tick_size
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.min_market_quantity
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.max_market_quantity
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.market_quantity_step_size
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.min_quantity.map(|v| v.to_string()).unwrap_or_default(),
+                info.max_quantity.map(|v| v.to_string()).unwrap_or_default(),
+                info.quantity_step_size
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                info.min_notional.map(|v| v.to_string()).unwrap_or_default(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let params = values.iter().map(|v| v as &dyn ToSql).collect::<Vec<_>>();
+    db.execute_update(&sql, &params)
+        .map_err(|e| PlatformError::PlatformError {
+            message: format!("Fail to update symbol_info data: {}", e),
+        })?;
+    Ok(())
+}
+
+pub fn get_symbol_info(
+    db: Arc<SQLiteDB>,
+    market_type: &MarketType,
+    symbol: &str,
+) -> Result<Option<SymbolInfo>> {
+    let sql = r#"
+    SELECT symbol, status, base_asset, quote_asset,
+           base_asset_precision, quote_asset_precision,
+           min_price, max_price, price_tick_size,
+           min_market_quantity, max_market_quantity, market_quantity_step_size,
+           min_quantity, max_quantity, quantity_step_size, min_notional
+    FROM symbol_info
+    WHERE market_type = ? AND symbol = ?;
+    "#;
+    let values: Vec<String> = vec![market_type.as_str().to_string(), symbol.to_string()];
+    let params: Vec<&dyn ToSql> = values.iter().map(|v| v as &dyn ToSql).collect();
+    let result = db
+        .execute_query(&sql, &params)
+        .map_err(|e| PlatformError::PlatformError {
+            message: format!("Fail to get symbol_info: {}", e),
+        })?;
+
+    if result.is_empty() {
+        return Ok(None);
+    }
+
+    let symbol_infos: Vec<SymbolInfo> =
+        result
+            .into_struct::<SymbolInfo>()
+            .map_err(|e| PlatformError::PlatformError {
+                message: format!("Fail to into symbol_info: {}", e),
+            })?;
+
+    Ok(symbol_infos.into_iter().next())
+}
+
+pub fn get_all_symbol_info(db: Arc<SQLiteDB>, market_type: &MarketType) -> Result<Vec<SymbolInfo>> {
+    let sql = r#"
+    SELECT symbol, status, base_asset, quote_asset,
+           base_asset_precision, quote_asset_precision,
+           min_price, max_price, price_tick_size,
+           min_market_quantity, max_market_quantity, market_quantity_step_size,
+           min_quantity, max_quantity, quantity_step_size, min_notional
+    FROM symbol_info
+    WHERE market_type = ?
+    ORDER BY symbol;
+    "#;
+    let values: Vec<String> = vec![market_type.as_str().to_string()];
+    let params: Vec<&dyn ToSql> = values.iter().map(|v| v as &dyn ToSql).collect();
+    let result = db
+        .execute_query(&sql, &params)
+        .map_err(|e| PlatformError::PlatformError {
+            message: format!("Fail to get all symbol_info: {}", e),
+        })?;
+
+    result
+        .into_struct::<SymbolInfo>()
+        .map_err(|e| PlatformError::PlatformError {
+            message: format!("Fail to into symbol_info list: {}", e),
+        })
+}
 
 pub fn create_kline_table(db: Arc<SQLiteDB>) -> Result<()> {
     let sql = r#"
