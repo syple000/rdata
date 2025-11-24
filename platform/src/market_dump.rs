@@ -209,15 +209,16 @@ async fn fetch_trades(
                         if trades.is_empty() {
                             break;
                         }
+                        let last_trade_id = trades.last().unwrap().trade_id.clone();
+                        let last_timestamp = trades.last().unwrap().timestamp;
                         log::info!(
-                            "Fetched {} trades for {} {} starting from {:?}",
+                            "Fetched {} trades for {} {} starting from {:?}, last timestamp: {}",
                             trades.len(),
                             market_type_clone.as_str(),
                             symbol_clone,
-                            current_from_id
+                            current_from_id,
+                            last_timestamp
                         );
-                        let last_trade_id = trades.last().unwrap().trade_id.clone();
-                        let last_timestamp = trades.last().unwrap().timestamp;
 
                         // 检查是否已经超过当前时间
                         if last_timestamp >= now {
