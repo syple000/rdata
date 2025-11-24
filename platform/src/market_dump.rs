@@ -2,7 +2,7 @@ use crate::{
     data_manager::db::*,
     errors::{PlatformError, Result},
     market_provider::MarketProvider,
-    models::{GetKlinesRequest, KlineInterval, MarketType},
+    models::{GetExchangeInfoRequest, GetKlinesRequest, KlineInterval, MarketType},
 };
 use db::sqlite::SQLiteDB;
 use std::{collections::HashMap, sync::Arc};
@@ -285,8 +285,29 @@ pub async fn market_dump(
     );
 
     // 创建表
+    create_symbol_info_table(db.clone())?;
     create_kline_table(db.clone())?;
     create_trade_table(db.clone())?;
+
+    // 0. 获取symbol info
+    log::info!("Starting to fetch symbol info for all markets...");
+    for (market_type, provider) in market_providers.iter() {
+        log::info!("Fetching symbol info for {}", market_type.as_str());
+        match provider
+            .get_exchange_info(GetExchangeInfoRequest {
+                symbols: Some(symbols.get(market_type).cloned().unwrap_or_default()),
+                symbol: None,
+            })
+            .await
+        {
+            Ok(exchange_info) => {
+                update_symbol_info(db.clone(), market_type, &exchange_info.symbols)?;
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
 
     // 1. 获取1m kline：最近5年
     log::info!("Starting to fetch 1m klines for all symbols...");
