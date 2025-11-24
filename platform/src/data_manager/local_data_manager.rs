@@ -4,11 +4,13 @@ use crate::{
     errors::{PlatformError, Result},
     models::{
         Account, CancelOrderRequest, DepthData, KlineData, KlineInterval, MarketType, Order,
-        PlaceOrderRequest, SymbolInfo, Ticker24hr, Trade, UserTrade,
+        OrderSide, OrderStatus, OrderType, PlaceOrderRequest, SymbolInfo, Ticker24hr, Trade,
+        UserTrade,
     },
 };
 use async_trait::async_trait;
 use db::sqlite::SQLiteDB;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -44,6 +46,9 @@ pub struct LocalMarketDataManager {
     db: Arc<SQLiteDB>,
     max_cache_size: usize,
 
+    symbol_infos: Arc<HashMap<MarketType, HashMap<String, SymbolInfo>>>,
+    base_quote_symbols: Arc<HashMap<MarketType, HashMap<(String, String), String>>>,
+
     cache_capacities: Arc<HashMap<MarketType, usize>>,
     klines: Arc<HashMap<(MarketType, String, KlineInterval), Arc<RwLock<VecDeque<KlineData>>>>>,
     trades: Arc<HashMap<(MarketType, String), Arc<RwLock<VecDeque<Trade>>>>>,
@@ -59,6 +64,8 @@ impl LocalMarketDataManager {
         let mut cache_capacities = HashMap::new();
         let mut klines = HashMap::new();
         let mut trades = HashMap::new();
+        let mut symbol_infos = HashMap::new();
+        let mut base_quote_symbols = HashMap::new();
         for market_type in config.markets.iter() {
             let market_config = config.configs.get(market_type).unwrap();
             cache_capacities.insert(market_type.clone(), market_config.cache_capacity);
@@ -73,6 +80,28 @@ impl LocalMarketDataManager {
                     (market_type.clone(), symbol.clone()),
                     Arc::new(RwLock::new(VecDeque::with_capacity(max_cache_size))),
                 );
+                let symbol_info = match get_symbol_info(db.clone(), market_type, symbol)? {
+                    None => {
+                        return Err(PlatformError::PlatformError {
+                            message: format!("symbol info: {} not found in db", symbol),
+                        });
+                    }
+                    Some(symbol_info) => symbol_info,
+                };
+                symbol_infos
+                    .entry(market_type.clone())
+                    .or_insert_with(HashMap::new)
+                    .insert(symbol.clone(), symbol_info.clone());
+                base_quote_symbols
+                    .entry(market_type.clone())
+                    .or_insert_with(HashMap::new)
+                    .insert(
+                        (
+                            symbol_info.base_asset.clone(),
+                            symbol_info.quote_asset.clone(),
+                        ),
+                        symbol.clone(),
+                    );
             }
         }
 
@@ -83,6 +112,8 @@ impl LocalMarketDataManager {
             cache_capacities: Arc::new(cache_capacities),
             klines: Arc::new(klines),
             trades: Arc::new(trades),
+            symbol_infos: Arc::new(symbol_infos),
+            base_quote_symbols: Arc::new(base_quote_symbols),
         })
     }
 
@@ -330,27 +361,68 @@ impl MarketDataManager for LocalMarketDataManager {
         unimplemented!("local data manager get ticker not implemented");
     }
 
-    #[allow(unused_variables)]
     async fn get_symbol_info(
         &self,
         market_type: &MarketType,
         symbol: &String,
     ) -> Result<Option<SymbolInfo>> {
-        unimplemented!("local data manager get symbol info not implemented");
+        let symbol_infos = match self.symbol_infos.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} symbol infos not found", market_type),
+                });
+            }
+            Some(infos) => infos,
+        };
+        if symbol_infos.contains_key(symbol) {
+            Ok(Some(symbol_infos.get(symbol).unwrap().clone()))
+        } else {
+            return Err(PlatformError::PlatformError {
+                message: format!(
+                    "market type: {:?} symbol: {} symbol info not found",
+                    market_type, symbol
+                ),
+            });
+        }
     }
 
-    #[allow(unused_variables)]
     async fn get_symbol(
         &self,
         market_type: &MarketType,
         base_asset: &String,
         quote_asset: &String,
     ) -> Result<Option<String>> {
-        unimplemented!("local data manager get symbol not implemented");
+        let base_quote_symbols = match self.base_quote_symbols.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!(
+                        "market type: {:?} base-quote symbols not found",
+                        market_type
+                    ),
+                });
+            }
+            Some(symbols) => symbols,
+        };
+        if base_quote_symbols.contains_key(&(base_asset.clone(), quote_asset.clone())) {
+            Ok(Some(
+                base_quote_symbols
+                    .get(&(base_asset.clone(), quote_asset.clone()))
+                    .unwrap()
+                    .clone(),
+            ))
+        } else {
+            Err(PlatformError::PlatformError {
+                message: format!(
+                    "market type: {:?} base: {}, quote: {}, symbol not found",
+                    market_type, base_asset, quote_asset
+                ),
+            })
+        }
     }
 }
 
 pub struct LocalTradeDataManager {
+    clock: Arc<Clock>,
     accounts: Arc<HashMap<MarketType, Arc<RwLock<Account>>>>,
     open_orders: Arc<HashMap<MarketType, Arc<RwLock<HashMap<String, Order>>>>>, // client_id
     closed_orders: Arc<HashMap<MarketType, Arc<RwLock<HashMap<String, Order>>>>>, // client_id
@@ -359,6 +431,7 @@ pub struct LocalTradeDataManager {
 
 impl LocalTradeDataManager {
     pub fn new(
+        clock: Arc<Clock>,
         config: Arc<PlatformConfig>,
         init_accounts: HashMap<MarketType, Account>,
     ) -> Result<Self> {
@@ -393,6 +466,7 @@ impl LocalTradeDataManager {
         }
 
         Ok(Self {
+            clock: clock,
             accounts: Arc::new(accounts),
             open_orders: Arc::new(open_orders),
             closed_orders: Arc::new(closed_orders),
@@ -401,7 +475,181 @@ impl LocalTradeDataManager {
     }
 
     // 测试环境调整clock时，需要check一次订单是否有匹配的成交产生
-    pub fn matching_order() -> Result<()> {
+    pub async fn matching_order(&self, mgr: Arc<dyn MarketDataManager>) -> Result<()> {
+        for (market_type, open_orders) in self.open_orders.iter() {
+            let mut open_orders = open_orders.write().await;
+            let mut closed_orders = match self.closed_orders.get(market_type) {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!("market type: {:?} closed orders not found", market_type),
+                    })
+                }
+                Some(orders_lock) => orders_lock.write().await,
+            };
+            let mut user_trades = match self.user_trades.get(market_type) {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!("market type: {:?} user trades not found", market_type),
+                    })
+                }
+                Some(user_trades_lock) => user_trades_lock.write().await,
+            };
+            let open_order_ids = open_orders.keys().map(|e| e.clone()).collect::<Vec<_>>();
+
+            for open_order_id in open_order_ids.iter() {
+                let mut order = open_orders.get(open_order_id).unwrap().clone();
+                let trades: Vec<Trade> = mgr
+                    .get_trades(market_type, &order.symbol, None)
+                    .await
+                    .map_err(|e| PlatformError::PlatformError {
+                        message: format!(
+                            "matching order get trades err for market_type: {:?}, symbol: {}, order_id: {}: {}",
+                            market_type, order.symbol, order.order_id, e
+                        ),
+                    })?;
+                let trades = trades
+                    .iter()
+                    .filter(|e| e.timestamp > order.update_time)
+                    .collect::<Vec<_>>();
+                for trade in trades.iter() {
+                    let can_match = if order.order_type == OrderType::Market {
+                        true
+                    } else if order.order_type == OrderType::Limit {
+                        if order.order_side == OrderSide::Buy {
+                            trade.price <= order.order_price
+                        } else {
+                            trade.price >= order.order_price
+                        }
+                    } else {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "match fail due to unsuppoted order type: {:?}",
+                                order.order_type
+                            ),
+                        });
+                    };
+                    if !can_match {
+                        continue;
+                    }
+
+                    let remaining_quatity = order.order_quantity - order.executed_qty;
+                    let trade_quantity = if trade.quantity >= remaining_quatity {
+                        remaining_quatity
+                    } else {
+                        trade.quantity
+                    };
+                    let order_status =
+                        if order.executed_qty + trade_quantity >= order.order_quantity {
+                            OrderStatus::Filled
+                        } else {
+                            OrderStatus::PartiallyFilled
+                        };
+
+                    order.order_status = order_status;
+                    order.executed_qty += trade_quantity;
+                    order.cummulative_quote_qty += trade_quantity * trade.price;
+
+                    let user_trade = UserTrade {
+                        trade_id: format!(
+                            "{}-{}-{}",
+                            order.order_id, trade.seq_id, trade.timestamp
+                        ),
+                        order_id: order.order_id.clone(),
+                        symbol: order.symbol.clone(),
+                        order_side: order.order_side.clone(),
+                        trade_price: trade.price,
+                        trade_quantity: trade.quantity,
+                        commission: Decimal::from_i32(0).unwrap(),
+                        commission_asset: "".to_string(),
+                        is_maker: 0,
+                        timestamp: trade.timestamp,
+                    };
+                    let mut user_trades_map =
+                        self.user_trades.get(market_type).unwrap().write().await;
+                    if !user_trades_map.contains_key(&order.order_id) {
+                        user_trades_map.insert(order.order_id.clone(), vec![]);
+                    }
+                    user_trades_map
+                        .get_mut(&order.order_id)
+                        .unwrap()
+                        .push(user_trade);
+                }
+            }
+            for (client_order_id, order) in open_orders.iter() {
+                let trades: Vec<Trade> = mgr
+                    .get_trades(market_type, &order.symbol, None)
+                    .await
+                    .map_err(|e| PlatformError::PlatformError {
+                        message: format!(
+                            "matching order get trades err for market_type: {:?}, symbol: {}, order_id: {}: {}",
+                            market_type, order.symbol, order.order_id, e
+                        ),
+                    })?;
+                let trades = trades
+                    .iter()
+                    .filter(|e| e.timestamp > order.update_time)
+                    .collect::<Vec<_>>();
+                for trade in trades.iter() {
+                    let can_match = if order.order_type == OrderType::Market {
+                        true
+                    } else if order.order_type == OrderType::Limit {
+                        if order.order_side == OrderSide::Buy {
+                            trade.price <= order.order_price
+                        } else {
+                            trade.price >= order.order_price
+                        }
+                    } else {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "match fail due to unsuppoted order type: {:?}",
+                                order.order_type
+                            ),
+                        });
+                    };
+                    if !can_match {
+                        continue;
+                    }
+
+                    let remaining_quatity = order.order_quantity - order.executed_qty;
+                    let trade_quantity = if trade.quantity >= remaining_quatity {
+                        remaining_quatity
+                    } else {
+                        trade.quantity
+                    };
+                    let order_status =
+                        if order.executed_qty + trade_quantity >= order.order_quantity {
+                            OrderStatus::Filled
+                        } else {
+                            OrderStatus::PartiallyFilled
+                        };
+
+                    let user_trade = UserTrade {
+                        trade_id: format!(
+                            "{}-{}-{}",
+                            order.order_id, trade.seq_id, trade.timestamp
+                        ),
+                        order_id: order.order_id.clone(),
+                        symbol: order.symbol.clone(),
+                        order_side: order.order_side.clone(),
+                        trade_price: trade.price,
+                        trade_quantity: trade.quantity,
+                        commission: Decimal::new(0, 0),
+                        commission_asset: "".to_string(),
+                        is_maker: 0,
+                        timestamp: trade.timestamp,
+                    };
+                    let mut user_trades_map =
+                        self.user_trades.get(market_type).unwrap().write().await;
+                    if !user_trades_map.contains_key(&order.order_id) {
+                        user_trades_map.insert(order.order_id.clone(), vec![]);
+                    }
+                    user_trades_map
+                        .get_mut(&order.order_id)
+                        .unwrap()
+                        .push(user_trade);
+                }
+            }
+        }
         todo!()
     }
 }
@@ -576,24 +824,96 @@ impl TradeDataManager for LocalTradeDataManager {
         Ok(trades)
     }
 
-    #[allow(unused_variables)]
     async fn get_order_by_client_id(
         &self,
         market_type: &MarketType,
         symbol: &str,
         client_order_id: &str,
     ) -> Result<Option<Order>> {
-        unimplemented!("local trade data manager get_order_by_client_id not implemented")
+        let open_orders = match self.open_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} open orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.read().await,
+        };
+        let closed_orders = match self.closed_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} closed orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.read().await,
+        };
+        if open_orders.contains_key(client_order_id) {
+            let order = open_orders.get(client_order_id).unwrap();
+            if order.symbol == symbol {
+                return Ok(Some(order.clone()));
+            } else {
+                return Ok(None);
+            }
+        }
+        if closed_orders.contains_key(client_order_id) {
+            let order = closed_orders.get(client_order_id).unwrap();
+            if order.symbol == symbol {
+                return Ok(Some(order.clone()));
+            } else {
+                return Ok(None);
+            }
+        }
+        Ok(None)
     }
 
-    #[allow(unused_variables)]
     async fn get_order_by_id(
         &self,
         market_type: &MarketType,
         symbol: &str,
         order_id: &str,
     ) -> Result<Option<Order>> {
-        unimplemented!("local trade data manager get_order_by_id not implemented")
+        let open_orders = match self.open_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} open orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.read().await,
+        };
+        let closed_orders = match self.closed_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} closed orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.read().await,
+        };
+        let target_open_orders = open_orders
+            .iter()
+            .filter(|e| {
+                if e.1.order_id == order_id && e.1.symbol == symbol {
+                    return true;
+                }
+                return false;
+            })
+            .map(|e| e.1.clone())
+            .collect::<Vec<_>>();
+        if target_open_orders.len() > 0 {
+            return Ok(Some(target_open_orders[0].clone()));
+        }
+        let target_closed_orders = closed_orders
+            .iter()
+            .filter(|e| {
+                if e.1.order_id == order_id && e.1.symbol == symbol {
+                    return true;
+                }
+                return false;
+            })
+            .map(|e| e.1.clone())
+            .collect::<Vec<_>>();
+        if target_closed_orders.len() > 0 {
+            return Ok(Some(target_closed_orders[0].clone()));
+        }
+        Ok(None)
     }
 
     #[allow(unused_variables)]
@@ -601,13 +921,80 @@ impl TradeDataManager for LocalTradeDataManager {
         unimplemented!("local trade data manager get_last_sync_ts not implemented")
     }
 
-    #[allow(unused_variables)]
     async fn place_order(&self, market_type: &MarketType, req: PlaceOrderRequest) -> Result<Order> {
-        unimplemented!("local trade data manager place_order not implemented")
+        if req.r#type != OrderType::Limit && req.r#type != OrderType::Market {
+            return Err(PlatformError::PlatformError {
+                message: format!(
+                    "only support Limit/Market order in test, got {:?}",
+                    req.r#type
+                ),
+            });
+        }
+        let mut open_orders = match self.open_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} open orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.write().await,
+        };
+        if open_orders.contains_key(&req.client_order_id) {
+            return Err(PlatformError::PlatformError {
+                message: format!(
+                    "order with client_order_id: {} already exists",
+                    req.client_order_id
+                ),
+            });
+        }
+        let mut order = Order::new_order_from_place_order_req(&req);
+        let now = self.clock.cur_ts();
+        order.order_id = format!("{:?}-{}-{}", market_type, req.client_order_id, now);
+        order.create_time = now;
+        order.update_time = now;
+        open_orders.insert(req.client_order_id.clone(), order.clone());
+        Ok(order)
     }
 
-    #[allow(unused_variables)]
     async fn cancel_order(&self, market_type: &MarketType, req: CancelOrderRequest) -> Result<()> {
-        unimplemented!("local trade data manager cancel_order not implemented")
+        let mut open_orders = match self.open_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} open orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.write().await,
+        };
+        let mut closed_orders = match self.closed_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} closed orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.write().await,
+        };
+        if !open_orders.contains_key(&req.client_order_id) {
+            return Err(PlatformError::PlatformError {
+                message: format!(
+                    "order with client_order_id: {} not found",
+                    req.client_order_id
+                ),
+            });
+        }
+        if req.order_id.is_some() {
+            let order = open_orders.get(&req.client_order_id).unwrap();
+            if order.order_id != req.order_id.clone().unwrap() {
+                return Err(PlatformError::PlatformError {
+                    message: format!(
+                        "order_id mismatch for client_order_id: {}",
+                        req.client_order_id
+                    ),
+                });
+            }
+        }
+        let mut order = open_orders.remove(&req.client_order_id).unwrap();
+        order.order_status = OrderStatus::Canceled;
+        order.update_time = self.clock.cur_ts();
+        closed_orders.insert(req.client_order_id.clone(), order);
+        Ok(())
     }
 }
