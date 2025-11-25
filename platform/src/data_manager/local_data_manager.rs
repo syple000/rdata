@@ -498,6 +498,21 @@ impl LocalTradeDataManager {
 
             for open_order_id in open_order_ids.iter() {
                 let mut order = open_orders.get(open_order_id).unwrap().clone();
+                let symbol_info: SymbolInfo = match mgr
+                    .get_symbol_info(market_type, &order.symbol)
+                    .await?
+                {
+                    None => {
+                        return Err(PlatformError::PlatformError {
+                                message: format!(
+                                    "matching order get symbol info err for market_type: {:?}, symbol: {}",
+                                    market_type, order.symbol
+                                ),
+                            });
+                    }
+                    Some(info) => info,
+                };
+
                 let trades: Vec<Trade> = mgr
                     .get_trades(market_type, &order.symbol, None)
                     .await
@@ -511,6 +526,7 @@ impl LocalTradeDataManager {
                     .iter()
                     .filter(|e| e.timestamp > order.update_time)
                     .collect::<Vec<_>>();
+
                 for trade in trades.iter() {
                     let can_match = if order.order_type == OrderType::Market {
                         true
@@ -548,6 +564,7 @@ impl LocalTradeDataManager {
                     order.order_status = order_status;
                     order.executed_qty += trade_quantity;
                     order.cummulative_quote_qty += trade_quantity * trade.price;
+                    order.update_time = self.clock.cur_ts();
 
                     let user_trade = UserTrade {
                         trade_id: format!(
@@ -559,98 +576,29 @@ impl LocalTradeDataManager {
                         order_side: order.order_side.clone(),
                         trade_price: trade.price,
                         trade_quantity: trade.quantity,
-                        commission: Decimal::from_i32(0).unwrap(),
-                        commission_asset: "".to_string(),
-                        is_maker: 0,
+                        commission: Decimal::from_f64(0.001).unwrap()
+                            * trade.quantity
+                            * trade.price, // 千分之一手续费
+                        commission_asset: symbol_info.quote_asset.clone(),
+                        is_maker: 0, // 模拟撮合都看作taker单
                         timestamp: trade.timestamp,
                     };
-                    let mut user_trades_map =
-                        self.user_trades.get(market_type).unwrap().write().await;
-                    if !user_trades_map.contains_key(&order.order_id) {
-                        user_trades_map.insert(order.order_id.clone(), vec![]);
-                    }
-                    user_trades_map
-                        .get_mut(&order.order_id)
-                        .unwrap()
-                        .push(user_trade);
-                }
-            }
-            for (client_order_id, order) in open_orders.iter() {
-                let trades: Vec<Trade> = mgr
-                    .get_trades(market_type, &order.symbol, None)
-                    .await
-                    .map_err(|e| PlatformError::PlatformError {
-                        message: format!(
-                            "matching order get trades err for market_type: {:?}, symbol: {}, order_id: {}: {}",
-                            market_type, order.symbol, order.order_id, e
-                        ),
-                    })?;
-                let trades = trades
-                    .iter()
-                    .filter(|e| e.timestamp > order.update_time)
-                    .collect::<Vec<_>>();
-                for trade in trades.iter() {
-                    let can_match = if order.order_type == OrderType::Market {
-                        true
-                    } else if order.order_type == OrderType::Limit {
-                        if order.order_side == OrderSide::Buy {
-                            trade.price <= order.order_price
-                        } else {
-                            trade.price >= order.order_price
-                        }
+
+                    if order.order_status == OrderStatus::Filled {
+                        closed_orders.insert(open_order_id.clone(), order.clone());
+                        open_orders.remove(open_order_id);
                     } else {
-                        return Err(PlatformError::PlatformError {
-                            message: format!(
-                                "match fail due to unsuppoted order type: {:?}",
-                                order.order_type
-                            ),
-                        });
-                    };
-                    if !can_match {
-                        continue;
+                        open_orders.insert(open_order_id.clone(), order.clone());
                     }
 
-                    let remaining_quatity = order.order_quantity - order.executed_qty;
-                    let trade_quantity = if trade.quantity >= remaining_quatity {
-                        remaining_quatity
-                    } else {
-                        trade.quantity
-                    };
-                    let order_status =
-                        if order.executed_qty + trade_quantity >= order.order_quantity {
-                            OrderStatus::Filled
-                        } else {
-                            OrderStatus::PartiallyFilled
-                        };
-
-                    let user_trade = UserTrade {
-                        trade_id: format!(
-                            "{}-{}-{}",
-                            order.order_id, trade.seq_id, trade.timestamp
-                        ),
-                        order_id: order.order_id.clone(),
-                        symbol: order.symbol.clone(),
-                        order_side: order.order_side.clone(),
-                        trade_price: trade.price,
-                        trade_quantity: trade.quantity,
-                        commission: Decimal::new(0, 0),
-                        commission_asset: "".to_string(),
-                        is_maker: 0,
-                        timestamp: trade.timestamp,
-                    };
-                    let mut user_trades_map =
-                        self.user_trades.get(market_type).unwrap().write().await;
-                    if !user_trades_map.contains_key(&order.order_id) {
-                        user_trades_map.insert(order.order_id.clone(), vec![]);
-                    }
-                    user_trades_map
-                        .get_mut(&order.order_id)
-                        .unwrap()
+                    user_trades
+                        .entry(open_order_id.clone())
+                        .or_insert_with(Vec::new)
                         .push(user_trade);
                 }
             }
         }
-        todo!()
+        Ok(())
     }
 }
 
