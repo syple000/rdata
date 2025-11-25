@@ -3,8 +3,8 @@ use crate::{
     data_manager::{db::*, MarketDataManager, TradeDataManager},
     errors::{PlatformError, Result},
     models::{
-        Account, CancelOrderRequest, DepthData, KlineData, KlineInterval, MarketType, Order,
-        OrderSide, OrderStatus, OrderType, PlaceOrderRequest, SymbolInfo, Ticker24hr, Trade,
+        Account, Balance, CancelOrderRequest, DepthData, KlineData, KlineInterval, MarketType,
+        Order, OrderSide, OrderStatus, OrderType, PlaceOrderRequest, SymbolInfo, Ticker24hr, Trade,
         UserTrade,
     },
 };
@@ -424,9 +424,11 @@ impl MarketDataManager for LocalMarketDataManager {
 pub struct LocalTradeDataManager {
     clock: Arc<Clock>,
     accounts: Arc<HashMap<MarketType, Arc<RwLock<Account>>>>,
+    order_freezes: Arc<RwLock<HashMap<MarketType, HashMap<String, Decimal>>>>, // asset -> frozen amount
     open_orders: Arc<HashMap<MarketType, Arc<RwLock<HashMap<String, Order>>>>>, // client_id
     closed_orders: Arc<HashMap<MarketType, Arc<RwLock<HashMap<String, Order>>>>>, // client_id
     user_trades: Arc<HashMap<MarketType, Arc<RwLock<HashMap<String, Vec<UserTrade>>>>>>, // order_id
+    market_mgr: Arc<dyn MarketDataManager>,
 }
 
 impl LocalTradeDataManager {
@@ -434,11 +436,13 @@ impl LocalTradeDataManager {
         clock: Arc<Clock>,
         config: Arc<PlatformConfig>,
         init_accounts: HashMap<MarketType, Account>,
+        market_mgr: Arc<dyn MarketDataManager>,
     ) -> Result<Self> {
         let mut accounts = HashMap::new();
         let mut open_orders = HashMap::new();
         let mut closed_orders = HashMap::new();
         let mut user_trades = HashMap::new();
+
         for market_type in config.markets.iter() {
             if !init_accounts.contains_key(market_type) {
                 return Err(PlatformError::PlatformError {
@@ -468,9 +472,439 @@ impl LocalTradeDataManager {
         Ok(Self {
             clock: clock,
             accounts: Arc::new(accounts),
+            order_freezes: Arc::new(RwLock::new(HashMap::new())),
             open_orders: Arc::new(open_orders),
             closed_orders: Arc::new(closed_orders),
             user_trades: Arc::new(user_trades),
+            market_mgr: market_mgr.clone(),
+        })
+    }
+
+    async fn get_symbol_info(
+        &self,
+        market_type: &MarketType,
+        symbol: &String,
+    ) -> Result<SymbolInfo> {
+        let symbol_info: SymbolInfo =
+            match self.market_mgr.get_symbol_info(market_type, symbol).await? {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!(
+                            "market type: {:?} symbol: {} not found",
+                            market_type, symbol
+                        ),
+                    })
+                }
+                Some(info) => info,
+            };
+        Ok(symbol_info)
+    }
+
+    async fn get_latest_trade(&self, market_type: &MarketType, symbol: &String) -> Result<Trade> {
+        let trades = self
+            .market_mgr
+            .get_trades(market_type, symbol, Some(1))
+            .await?;
+        if trades.is_empty() {
+            return Err(PlatformError::PlatformError {
+                message: format!(
+                    "market type: {:?} symbol: {} no trades found",
+                    market_type, symbol
+                ),
+            });
+        }
+        Ok(trades[0].clone())
+    }
+
+    // 订单状态流转时,账户的余额和冻结金额都需要变更
+    // 下买订单：Market订单：冻结最新trade价格 * 1.2 * 数量，Limit订单：冻结订单价格 * 1.001 * 数量
+    // 买订单（部分）成交：按比例接触冻结金额（本次成交数量/原订单剩余数量 * 该订单剩余冻结金额），可用余额增加；同时扣除可用金额中本次成交对应的金额（成交价格 * 数量 + 佣金率）
+    // 买订单取消：释放冻结金额到可用余额
+    // 账户余额不足，返回失败
+    // 卖订单同理，只是冻结和解冻的是基础资产数量
+    async fn update_account_on_order_status_change(
+        &self,
+        market_type: &MarketType,
+        order: &Order,
+        trade: Option<&UserTrade>,
+        base_asset: &str,
+        quote_asset: &str,
+    ) -> Result<()> {
+        // 获取账户锁
+        let account_lock = match self.accounts.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} account not found", market_type),
+                });
+            }
+            Some(lock) => lock,
+        };
+
+        let mut account = account_lock.write().await;
+
+        // 获取订单冻结记录锁
+        let mut order_freezes = self.order_freezes.write().await;
+        let market_freezes = order_freezes
+            .entry(market_type.clone())
+            .or_insert_with(|| HashMap::new());
+
+        // 处理买单 - 新订单状态
+        if order.order_side == OrderSide::Buy && order.order_status == OrderStatus::New {
+            // 买单新订单：需要冻结quote资产
+            let freeze_amount = if order.order_type == OrderType::Market {
+                // Market订单：冻结最新trade价格 * 1.2 * 数量
+                let trade = self.get_latest_trade(market_type, &order.symbol).await?;
+                trade.price * order.order_quantity * Decimal::from_f64(1.2).unwrap()
+            } else if order.order_type == OrderType::Limit {
+                // Limit订单：冻结订单价格 * 1.001 * 数量
+                order.order_price * order.order_quantity * Decimal::from_f64(1.001).unwrap()
+            } else {
+                return Err(PlatformError::PlatformError {
+                    message: format!("unsupported order type: {:?}", order.order_type),
+                });
+            };
+
+            // 检查quote资产余额是否足够
+            let quote_balance = account.balances.iter_mut().find(|b| b.asset == quote_asset);
+
+            match quote_balance {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!("quote asset {} not found in account", quote_asset),
+                    });
+                }
+                Some(balance) => {
+                    if balance.free < freeze_amount {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "insufficient balance for quote asset {}: free={}, required={}",
+                                quote_asset, balance.free, freeze_amount
+                            ),
+                        });
+                    }
+
+                    // 冻结金额
+                    balance.free -= freeze_amount;
+                    balance.locked += freeze_amount;
+
+                    // 记录订单冻结金额
+                    market_freezes.insert(order.client_order_id.clone(), freeze_amount);
+                }
+            }
+
+            return Ok(());
+        }
+
+        // 处理买单 - 部分成交或完全成交
+        if order.order_side == OrderSide::Buy
+            && (order.order_status == OrderStatus::PartiallyFilled
+                || order.order_status == OrderStatus::Filled)
+        {
+            let user_trade = match trade {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: "trade required for filled/partially filled status".to_string(),
+                    });
+                }
+                Some(t) => t,
+            };
+
+            // 获取该订单之前冻结的金额
+            let frozen_amount = match market_freezes.get(&order.client_order_id) {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!(
+                            "frozen amount not found for order {}",
+                            order.client_order_id
+                        ),
+                    });
+                }
+                Some(amount) => *amount,
+            };
+
+            // 计算本次成交应该释放的冻结金额
+            // 按比例：本次成交数量 / 订单总数量 * 总冻结金额
+            let unfreeze_amount = user_trade.trade_quantity
+                / (order.order_quantity - order.executed_qty + user_trade.trade_quantity)
+                * frozen_amount;
+
+            // 计算本次成交实际花费（成交价格 * 数量 + 手续费）
+            let actual_cost =
+                user_trade.trade_price * user_trade.trade_quantity + user_trade.commission;
+
+            // 找到quote资产的余额
+            let quote_balance = account.balances.iter_mut().find(|b| b.asset == quote_asset);
+
+            match quote_balance {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!("quote asset {} not found in account", quote_asset),
+                    });
+                }
+                Some(balance) => {
+                    // 释放冻结金额
+                    if balance.locked < unfreeze_amount {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "insufficient locked balance for quote asset {}: locked={}, required={}",
+                                quote_asset, balance.locked, unfreeze_amount
+                            ),
+                        });
+                    }
+                    balance.locked -= unfreeze_amount;
+
+                    // 释放的金额转到可用余额，但要扣除实际花费
+                    if balance.free + unfreeze_amount < actual_cost {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "insufficient free balance for quote asset {} after unfreeze: free+unfreeze={}, actual_cost={}",
+                                quote_asset, balance.free + unfreeze_amount, actual_cost
+                            ),
+                        });
+                    }
+                    balance.free += unfreeze_amount - actual_cost;
+
+                    // 更新订单冻结记录
+                    let new_frozen = frozen_amount - unfreeze_amount;
+                    if new_frozen > Decimal::ZERO {
+                        market_freezes.insert(order.client_order_id.clone(), new_frozen);
+                    } else {
+                        market_freezes.remove(&order.client_order_id);
+                    }
+                }
+            }
+
+            // 买单成交后，增加base资产（买到的币）
+            let base_balance = account.balances.iter_mut().find(|b| b.asset == base_asset);
+
+            match base_balance {
+                None => {
+                    // 如果账户中没有该资产，创建一个新的
+                    account.balances.push(Balance {
+                        asset: base_asset.to_string(),
+                        free: user_trade.trade_quantity,
+                        locked: Decimal::ZERO,
+                    });
+                }
+                Some(balance) => {
+                    balance.free += user_trade.trade_quantity;
+                }
+            }
+
+            return Ok(());
+        }
+
+        // 处理买单 - 取消
+        if order.order_side == OrderSide::Buy && order.order_status == OrderStatus::Canceled {
+            // 获取该订单冻结的金额
+            let frozen_amount = match market_freezes.get(&order.client_order_id) {
+                None => {
+                    // 订单可能已经完全成交后取消，冻结金额已经释放完
+                    Decimal::ZERO
+                }
+                Some(amount) => *amount,
+            };
+
+            if frozen_amount > Decimal::ZERO {
+                // 找到quote资产的余额
+                let quote_balance = account.balances.iter_mut().find(|b| b.asset == quote_asset);
+
+                match quote_balance {
+                    None => {
+                        return Err(PlatformError::PlatformError {
+                            message: format!("quote asset {} not found in account", quote_asset),
+                        });
+                    }
+                    Some(balance) => {
+                        // 释放所有冻结金额到可用余额
+                        if balance.locked < frozen_amount {
+                            return Err(PlatformError::PlatformError {
+                                message: format!(
+                                    "insufficient locked balance for quote asset {}: locked={}, required={}",
+                                    quote_asset, balance.locked, frozen_amount
+                                ),
+                            });
+                        }
+                        balance.locked -= frozen_amount;
+                        balance.free += frozen_amount;
+
+                        // 移除订单冻结记录
+                        market_freezes.remove(&order.client_order_id);
+                    }
+                }
+            }
+
+            return Ok(());
+        }
+
+        // 处理卖单 - 新订单状态
+        if order.order_side == OrderSide::Sell && order.order_status == OrderStatus::New {
+            // 卖单新订单：需要冻结base资产（要卖出的币）
+            let freeze_amount = order.order_quantity;
+
+            // 检查base资产余额是否足够
+            let base_balance = account.balances.iter_mut().find(|b| b.asset == base_asset);
+
+            match base_balance {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!("base asset {} not found in account", base_asset),
+                    });
+                }
+                Some(balance) => {
+                    if balance.free < freeze_amount {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "insufficient balance for base asset {}: free={}, required={}",
+                                base_asset, balance.free, freeze_amount
+                            ),
+                        });
+                    }
+
+                    // 冻结base资产
+                    balance.free -= freeze_amount;
+                    balance.locked += freeze_amount;
+
+                    // 记录订单冻结金额
+                    market_freezes.insert(order.client_order_id.clone(), freeze_amount);
+                }
+            }
+
+            return Ok(());
+        }
+
+        // 处理卖单 - 部分成交或完全成交
+        if order.order_side == OrderSide::Sell
+            && (order.order_status == OrderStatus::PartiallyFilled
+                || order.order_status == OrderStatus::Filled)
+        {
+            let user_trade = match trade {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: "trade required for filled/partially filled status".to_string(),
+                    });
+                }
+                Some(t) => t,
+            };
+
+            // 获取该订单之前冻结的数量
+            let frozen_amount = match market_freezes.get(&order.client_order_id) {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!(
+                            "frozen amount not found for order {}",
+                            order.client_order_id
+                        ),
+                    });
+                }
+                Some(amount) => *amount,
+            };
+
+            let unfreeze_amount = user_trade.trade_quantity;
+
+            // 找到base资产的余额
+            let base_balance = account.balances.iter_mut().find(|b| b.asset == base_asset);
+
+            match base_balance {
+                None => {
+                    return Err(PlatformError::PlatformError {
+                        message: format!("base asset {} not found in account", base_asset),
+                    });
+                }
+                Some(balance) => {
+                    // 释放冻结的base资产（卖出的币从冻结中扣除）
+                    if balance.locked < unfreeze_amount {
+                        return Err(PlatformError::PlatformError {
+                            message: format!(
+                                "insufficient locked balance for base asset {}: locked={}, required={}",
+                                base_asset, balance.locked, unfreeze_amount
+                            ),
+                        });
+                    }
+                    balance.locked -= unfreeze_amount;
+
+                    // 更新订单冻结记录
+                    let new_frozen = frozen_amount - unfreeze_amount;
+                    if new_frozen > Decimal::ZERO {
+                        market_freezes.insert(order.client_order_id.clone(), new_frozen);
+                    } else {
+                        market_freezes.remove(&order.client_order_id);
+                    }
+                }
+            }
+
+            // 卖单成交后，增加quote资产（卖出得到的钱），扣除手续费
+            let actual_receive =
+                user_trade.trade_price * user_trade.trade_quantity - user_trade.commission;
+
+            let quote_balance = account.balances.iter_mut().find(|b| b.asset == quote_asset);
+
+            match quote_balance {
+                None => {
+                    // 如果账户中没有该资产，创建一个新的
+                    account.balances.push(Balance {
+                        asset: quote_asset.to_string(),
+                        free: actual_receive,
+                        locked: Decimal::ZERO,
+                    });
+                }
+                Some(balance) => {
+                    balance.free += actual_receive;
+                }
+            }
+
+            return Ok(());
+        }
+
+        // 处理卖单 - 取消
+        if order.order_side == OrderSide::Sell && order.order_status == OrderStatus::Canceled {
+            // 获取该订单冻结的数量
+            let frozen_amount = match market_freezes.get(&order.client_order_id) {
+                None => {
+                    // 订单可能已经完全成交后取消，冻结数量已经释放完
+                    Decimal::ZERO
+                }
+                Some(amount) => *amount,
+            };
+
+            if frozen_amount > Decimal::ZERO {
+                // 找到base资产的余额
+                let base_balance = account.balances.iter_mut().find(|b| b.asset == base_asset);
+
+                match base_balance {
+                    None => {
+                        return Err(PlatformError::PlatformError {
+                            message: format!("base asset {} not found in account", base_asset),
+                        });
+                    }
+                    Some(balance) => {
+                        // 释放所有冻结数量到可用余额
+                        if balance.locked < frozen_amount {
+                            return Err(PlatformError::PlatformError {
+                                message: format!(
+                                    "insufficient locked balance for base asset {}: locked={}, required={}",
+                                    base_asset, balance.locked, frozen_amount
+                                ),
+                            });
+                        }
+                        balance.locked -= frozen_amount;
+                        balance.free += frozen_amount;
+
+                        // 移除订单冻结记录
+                        market_freezes.remove(&order.client_order_id);
+                    }
+                }
+            }
+
+            return Ok(());
+        }
+
+        // 如果以上都不匹配，返回错误
+        Err(PlatformError::PlatformError {
+            message: format!(
+                "unhandled order status change: side={:?}, status={:?}",
+                order.order_side, order.order_status
+            ),
         })
     }
 
@@ -584,6 +1018,16 @@ impl LocalTradeDataManager {
                         timestamp: trade.timestamp,
                     };
 
+                    // 更新账户状态（处理成交）
+                    self.update_account_on_order_status_change(
+                        market_type,
+                        &order,
+                        Some(&user_trade),
+                        &symbol_info.base_asset,
+                        &symbol_info.quote_asset,
+                    )
+                    .await?;
+
                     if order.order_status == OrderStatus::Filled {
                         closed_orders.insert(open_order_id.clone(), order.clone());
                         open_orders.remove(open_order_id);
@@ -592,9 +1036,13 @@ impl LocalTradeDataManager {
                     }
 
                     user_trades
-                        .entry(open_order_id.clone())
+                        .entry(order.order_id.clone())
                         .or_insert_with(Vec::new)
                         .push(user_trade);
+
+                    if order.order_status == OrderStatus::Filled {
+                        break;
+                    }
                 }
             }
         }
@@ -878,6 +1326,7 @@ impl TradeDataManager for LocalTradeDataManager {
                 ),
             });
         }
+
         let mut open_orders = match self.open_orders.get(market_type) {
             None => {
                 return Err(PlatformError::PlatformError {
@@ -894,12 +1343,30 @@ impl TradeDataManager for LocalTradeDataManager {
                 ),
             });
         }
+
         let mut order = Order::new_order_from_place_order_req(&req);
         let now = self.clock.cur_ts();
         order.order_id = format!("{:?}-{}-{}", market_type, req.client_order_id, now);
         order.create_time = now;
         order.update_time = now;
+
+        // 获取symbol信息
+        let symbol_info = self.get_symbol_info(market_type, &order.symbol).await?;
+        let base_asset = symbol_info.base_asset.clone();
+        let quote_asset = symbol_info.quote_asset.clone();
+
+        // 更新账户状态（冻结资金）
+        self.update_account_on_order_status_change(
+            market_type,
+            &order,
+            None,
+            &base_asset,
+            &quote_asset,
+        )
+        .await?;
+
         open_orders.insert(req.client_order_id.clone(), order.clone());
+
         Ok(order)
     }
 
@@ -912,14 +1379,7 @@ impl TradeDataManager for LocalTradeDataManager {
             }
             Some(orders_lock) => orders_lock.write().await,
         };
-        let mut closed_orders = match self.closed_orders.get(market_type) {
-            None => {
-                return Err(PlatformError::PlatformError {
-                    message: format!("market type: {:?} closed orders not found", market_type),
-                })
-            }
-            Some(orders_lock) => orders_lock.write().await,
-        };
+
         if !open_orders.contains_key(&req.client_order_id) {
             return Err(PlatformError::PlatformError {
                 message: format!(
@@ -939,10 +1399,36 @@ impl TradeDataManager for LocalTradeDataManager {
                 });
             }
         }
-        let mut order = open_orders.remove(&req.client_order_id).unwrap();
+        let mut order = open_orders.get(&req.client_order_id).unwrap().clone();
         order.order_status = OrderStatus::Canceled;
         order.update_time = self.clock.cur_ts();
+
+        // 获取symbol信息
+        let symbol_info = self.get_symbol_info(market_type, &order.symbol).await?;
+        let base_asset = symbol_info.base_asset.clone();
+        let quote_asset = symbol_info.quote_asset.clone();
+
+        // 更新账户状态（释放冻结资金）
+        self.update_account_on_order_status_change(
+            market_type,
+            &order,
+            None,
+            &base_asset,
+            &quote_asset,
+        )
+        .await?;
+
+        let mut closed_orders = match self.closed_orders.get(market_type) {
+            None => {
+                return Err(PlatformError::PlatformError {
+                    message: format!("market type: {:?} closed orders not found", market_type),
+                })
+            }
+            Some(orders_lock) => orders_lock.write().await,
+        };
+        open_orders.remove(&req.client_order_id);
         closed_orders.insert(req.client_order_id.clone(), order);
+
         Ok(())
     }
 }
