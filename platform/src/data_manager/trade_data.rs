@@ -696,11 +696,12 @@ impl TradeDataManager for TradeData {
     }
 
     async fn place_order(&self, market_type: &MarketType, req: PlaceOrderRequest) -> Result<Order> {
+        let mut order = Order::new_order_from_place_order_req(&req);
         Self::update_order_inner(
             self.open_order_stats.clone(),
             self.db.clone(),
             market_type,
-            Order::new_order_from_place_order_req(&req),
+            order.clone(),
         )
         .await?;
 
@@ -713,7 +714,20 @@ impl TradeDataManager for TradeData {
                         market_type
                     ),
                 })?;
-        trade_provider.place_order(req).await
+        match trade_provider.place_order(req).await {
+            Ok(order) => Ok(order),
+            Err(e) => {
+                order.order_status = OrderStatus::Rejected;
+                Self::update_order_inner(
+                    self.open_order_stats.clone(),
+                    self.db.clone(),
+                    market_type,
+                    order,
+                )
+                .await?;
+                Err(e)
+            }
+        }
     }
 
     async fn cancel_order(&self, market_type: &MarketType, req: CancelOrderRequest) -> Result<()> {
