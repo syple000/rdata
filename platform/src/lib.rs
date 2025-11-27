@@ -1,3 +1,4 @@
+pub mod backtest;
 pub mod config;
 pub mod conversions;
 pub mod data_manager;
