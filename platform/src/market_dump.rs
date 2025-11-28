@@ -201,14 +201,6 @@ async fn check_update_trades(
             Some(1000),
         )?;
 
-        log::info!(
-            "Existing trades fetched for {} {} from seq_id {}: {} records",
-            market_type.as_str(),
-            symbol,
-            current_from_seq_id,
-            existing_trades.len()
-        );
-
         // 如果是首次获取，检查是否从 from_ts 开始，如果差异60s以上，则补充数据
         // 检查数据缺失：验证 seq_id 是否严格递增连续
         if !existing_trades.is_empty() {
@@ -300,7 +292,6 @@ pub async fn market_dump(
     create_kline_table(db.clone())?;
     create_trade_table(db.clone())?;
 
-    // 0. 获取symbol info
     log::info!("Starting to fetch symbol info for all markets...");
     for (market_type, provider) in market_providers.iter() {
         log::info!("Fetching symbol info for {}", market_type.as_str());
