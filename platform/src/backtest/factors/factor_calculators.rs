@@ -22,6 +22,26 @@ pub enum KlineFactorType {
     AvgBodyRatio,
 }
 
+impl KlineFactorType {
+    pub fn from_str(factor_name: &str) -> Option<Self> {
+        match factor_name {
+            "PriceReturn" => Some(KlineFactorType::PriceReturn),
+            "TrendStrength" => Some(KlineFactorType::TrendStrength),
+            "PriceVolatility" => Some(KlineFactorType::PriceVolatility),
+            "PriceRange" => Some(KlineFactorType::PriceRange),
+            "PricePosition" => Some(KlineFactorType::PricePosition),
+            "AvgVolume" => Some(KlineFactorType::AvgVolume),
+            "VolumeVolatility" => Some(KlineFactorType::VolumeVolatility),
+            "VolumeTrend" => Some(KlineFactorType::VolumeTrend),
+            "OBV" => Some(KlineFactorType::OBV),
+            "PriceVolumeCorrelation" => Some(KlineFactorType::PriceVolumeCorrelation),
+            "AvgIntradayRange" => Some(KlineFactorType::AvgIntradayRange),
+            "AvgBodyRatio" => Some(KlineFactorType::AvgBodyRatio),
+            _ => None,
+        }
+    }
+}
+
 pub struct KlineFactorCalculators {
     pub factor_type: KlineFactorType,
     pub interval: KlineInterval,
@@ -137,6 +157,41 @@ pub enum TradeFactorType {
     TradeFrequency,
     AvgTradeInterval,
     TradeIntervalStd,
+}
+
+impl TradeFactorType {
+    pub fn from_str(factor_name: &str) -> Option<Self> {
+        match factor_name {
+            "PriceReturn" => Some(TradeFactorType::PriceReturn),
+            "TrendStrength" => Some(TradeFactorType::TrendStrength),
+            "PriceVolatility" => Some(TradeFactorType::PriceVolatility),
+            "PriceRange" => Some(TradeFactorType::PriceRange),
+            "PriceAcceleration" => Some(TradeFactorType::PriceAcceleration),
+            "PricePosition" => Some(TradeFactorType::PricePosition),
+            "AvgVol" => Some(TradeFactorType::AvgVol),
+            "VolVolatility" => Some(TradeFactorType::VolVolatility),
+            "VolSkew" => Some(TradeFactorType::VolSkew),
+            "LargeTradeRatio" => Some(TradeFactorType::LargeTradeRatio),
+            "VolTrend" => Some(TradeFactorType::VolTrend),
+            "BuyCount" => Some(TradeFactorType::BuyCount),
+            "SellCount" => Some(TradeFactorType::SellCount),
+            "TradeImbalance" => Some(TradeFactorType::TradeImbalance),
+            "BuyVol" => Some(TradeFactorType::BuyVol),
+            "SellVol" => Some(TradeFactorType::SellVol),
+            "VolImbalance" => Some(TradeFactorType::VolImbalance),
+            "NetBuyRatio" => Some(TradeFactorType::NetBuyRatio),
+            "AvgTradeSizeRatio" => Some(TradeFactorType::AvgTradeSizeRatio),
+            "Vwap" => Some(TradeFactorType::Vwap),
+            "PriceVwapDeviation" => Some(TradeFactorType::PriceVwapDeviation),
+            "VwapSlope" => Some(TradeFactorType::VwapSlope),
+            "OBV" => Some(TradeFactorType::OBV),
+            "PriceVolumeCorrelation" => Some(TradeFactorType::PriceVolumeCorrelation),
+            "TradeFrequency" => Some(TradeFactorType::TradeFrequency),
+            "AvgTradeInterval" => Some(TradeFactorType::AvgTradeInterval),
+            "TradeIntervalStd" => Some(TradeFactorType::TradeIntervalStd),
+            _ => None,
+        }
+    }
 }
 
 pub struct TradeFactorCalculators {
