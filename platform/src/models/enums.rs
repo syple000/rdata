@@ -12,6 +12,13 @@ impl MarketType {
             MarketType::BinanceSpot => "binance_spot",
         }
     }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "binance_spot" => Some(MarketType::BinanceSpot),
+            _ => None,
+        }
+    }
 }
 
 pub enum FetchStrategy {
@@ -206,6 +213,28 @@ impl KlineInterval {
             KlineInterval::ThreeDays => "3d",
             KlineInterval::OneWeek => "1w",
             KlineInterval::OneMonth => "1M",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "1s" => Some(KlineInterval::OneSecond),
+            "1m" => Some(KlineInterval::OneMinute),
+            "3m" => Some(KlineInterval::ThreeMinutes),
+            "5m" => Some(KlineInterval::FiveMinutes),
+            "15m" => Some(KlineInterval::FifteenMinutes),
+            "30m" => Some(KlineInterval::ThirtyMinutes),
+            "1h" => Some(KlineInterval::OneHour),
+            "2h" => Some(KlineInterval::TwoHours),
+            "4h" => Some(KlineInterval::FourHours),
+            "6h" => Some(KlineInterval::SixHours),
+            "8h" => Some(KlineInterval::EightHours),
+            "12h" => Some(KlineInterval::TwelveHours),
+            "1d" => Some(KlineInterval::OneDay),
+            "3d" => Some(KlineInterval::ThreeDays),
+            "1w" => Some(KlineInterval::OneWeek),
+            "1M" => Some(KlineInterval::OneMonth),
+            _ => None,
         }
     }
 }
