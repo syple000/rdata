@@ -173,14 +173,12 @@ fn parse_args() -> HashMap<String, String> {
     args_map
 }
 
-#[tokio::main]
-pub async fn main() {
-    // 初始化日志系统，日志输出到 platform.log 文件
-    let log_file_path = "platform.log";
+fn init_log(command: &str) {
+    let log_file_path = format!("platform_{}.log", command);
     let log_file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_file_path)
+        .open(&log_file_path)
         .expect("failed to open log file");
 
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
@@ -192,11 +190,15 @@ pub async fn main() {
         .init();
 
     log::info!("platform starting, logging to {}", log_file_path);
+}
 
+#[tokio::main]
+pub async fn main() {
     let args: HashMap<String, String> = parse_args();
 
     match args.get("command").map(String::as_str) {
         Some("market_dump") => {
+            init_log("market_dump");
             let conf = args
                 .get("config")
                 .map(String::as_str)
@@ -204,11 +206,11 @@ pub async fn main() {
             market_dump_main(conf).await;
         }
         Some("factor_backtest") => {
+            init_log("factor_backtest");
             let conf = args
                 .get("config")
                 .map(String::as_str)
                 .unwrap_or("conf/platform_conf.toml");
-
             factor_backtest_main(conf, &args).await;
         }
         _ => {

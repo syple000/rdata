@@ -50,11 +50,22 @@ impl FactorBacktester {
         let mut records = Vec::new();
         let mut cur_ts = start_ts;
 
-        // 允许的最大时间间隔：step_ms 的一半
-        let max_lag_ms = step_ms / 2;
+        // 允许的最大时间间隔：step_ms
+        let max_lag_ms = step_ms;
+        let mut loop_cnt = 0;
 
         // 1. 遍历时间轴，计算因子值和价格
         while cur_ts <= end_ts {
+            if loop_cnt % 1000 == 0 {
+                log::info!(
+                    "Backtesting {} at time {}, progress: {:.2}%",
+                    symbol,
+                    cur_ts,
+                    (cur_ts - start_ts) as f64 / (end_ts - start_ts) as f64 * 100.0
+                );
+            }
+            loop_cnt += 1;
+
             // 设置模拟时钟，LocalMarketDataManager 会根据这个时间过滤数据
             self.clock.set_cur_ts(cur_ts);
 

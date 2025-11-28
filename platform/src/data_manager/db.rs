@@ -414,10 +414,10 @@ pub fn get_trades(
     SELECT symbol, trade_id, price, quantity, timestamp, is_buyer_maker, seq_id
     FROM trade
     WHERE market_type = ? AND symbol = ? AND timestamp >= ? AND timestamp <= ? AND seq_id >= ?
-    ORDER BY seq_id {}
+    ORDER BY timestamp {},seq_id {}
     LIMIT {};
     "#,
-        order_direction, limit
+        order_direction, order_direction, limit
     );
     let values: Vec<String> = vec![
         market_type.as_str().to_string(),

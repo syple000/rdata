@@ -4,6 +4,7 @@
 cd platform && cargo build --release && cd -
 
 # 创建build目录
+rm -rf build
 mkdir -p build
 mkdir -p build/conf
 
