@@ -79,14 +79,14 @@ async fn check_update_klines(
 
         // 检查数据缺失
         if !existing_klines.is_empty() {
-            let end = existing_klines.last().unwrap().open_time;
-            if (end - current_from_ts) / interval_ms + 1 < existing_klines.len() as u64 {
+            let next_from_ts = existing_klines.last().unwrap().close_time + 1;
+            if (next_from_ts - current_from_ts) / interval_ms != existing_klines.len() as u64 {
                 log::info!(
                     "Data gap detected for {} {} from {} to {}. Fetching missing klines...",
                     market_type.as_str(),
                     symbol,
                     current_from_ts,
-                    end
+                    next_from_ts
                 );
                 fetch_klines(
                     market_type.clone(),
@@ -95,7 +95,7 @@ async fn check_update_klines(
                     interval.clone(),
                     db.clone(),
                     current_from_ts,
-                    end,
+                    next_from_ts,
                 )
                 .await?;
             }
@@ -115,9 +115,8 @@ async fn check_update_klines(
             .await?;
             break;
         } else {
-            // 更新 current_from_ts 以获取后续数据
-            let last_open_time = existing_klines.last().unwrap().open_time;
-            current_from_ts = last_open_time + interval_ms;
+            let next_from_ts = existing_klines.last().unwrap().close_time + 1;
+            current_from_ts = next_from_ts;
         }
     }
     Ok(())
