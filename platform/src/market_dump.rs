@@ -102,6 +102,12 @@ async fn check_update_klines(
         }
 
         if existing_klines.is_empty() {
+            log::info!(
+                "No existing klines for {} {} from {}. Fetching data...",
+                market_type.as_str(),
+                symbol,
+                current_from_ts
+            );
             // 数据为空则从 current_from_ts 开始获取
             fetch_klines(
                 market_type.clone(),
@@ -159,7 +165,14 @@ async fn fetch_trades(
         if trades.is_empty() {
             break;
         }
-
+        log::info!(
+            "Fetched {} trades for {} {} starting from seq_id {} or time {}",
+            trades.len(),
+            market_type_clone.as_str(),
+            symbol_clone,
+            current_from_seq_id,
+            current_from_ts
+        );
         let last_seq_id = trades.last().unwrap().seq_id;
         let last_ts = trades.last().unwrap().timestamp;
         update_trade_data(db_clone.clone(), &market_type_clone, &trades)?;
@@ -253,6 +266,12 @@ async fn check_update_trades(
         }
 
         if existing_trades.is_empty() {
+            log::info!(
+                "No existing trades for {} {} from {}. Fetching data...",
+                market_type.as_str(),
+                symbol,
+                current_from_ts
+            );
             fetch_trades(
                 market_type.clone(),
                 provider.clone(),
