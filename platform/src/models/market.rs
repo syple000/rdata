@@ -14,6 +14,8 @@ pub struct KlineData {
     pub close: Decimal,
     pub volume: Decimal,
     pub quote_volume: Decimal,
+    pub taker_buy_volume: Decimal,       // 部分交易所无该数据，默认0
+    pub taker_buy_quote_volume: Decimal, // 部分交易所无该数据，默认0
     pub is_closed: u64,
 }
 

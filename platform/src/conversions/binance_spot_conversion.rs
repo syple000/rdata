@@ -18,6 +18,8 @@ impl From<ex_models::KlineData> for KlineData {
             close: value.close,
             volume: value.volume,
             quote_volume: value.quote_volume,
+            taker_buy_volume: value.taker_buy_volume,
+            taker_buy_quote_volume: value.taker_buy_quote_volume,
             is_closed: if value.is_closed { 1 } else { 0 },
         }
     }

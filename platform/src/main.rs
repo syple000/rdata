@@ -53,6 +53,49 @@ async fn market_dump_main(conf: &str) {
     }
 }
 
+async fn db_migration_main(conf: &str, args: &HashMap<String, String>) {
+    let config = Config::from_toml(conf).unwrap();
+    let platform_config = PlatformConfig::from_config(config).unwrap();
+    let db = Arc::new(
+        SQLiteDB::new(&platform_config.db_path)
+            .map_err(|e| PlatformError::PlatformError {
+                message: format!("Failed to open database: {}", e),
+            })
+            .expect("init db failed"),
+    );
+    let target_db_path = args
+        .get("target_db_path")
+        .map(String::as_str)
+        .expect("target_db_path not found");
+    let table = args
+        .get("table")
+        .map(String::as_str)
+        .expect("table not found");
+    // 1. attach
+    db.execute_update(
+        &format!("ATTACH DATABASE '{}' AS target_db;", target_db_path),
+        &[],
+    )
+    .expect("attach database failed");
+    // 2. copy
+    db.begin_transaction().expect("begin transaction failed");
+    db.execute_update(
+        &format!(
+            "CREATE TABLE target_db.{} AS SELECT * FROM {};",
+            table, table
+        ),
+        &[],
+    )
+    .expect("copy table failed");
+    db.execute_update(&format!("DROP TABLE {};", table), &[])
+        .expect("drop table failed");
+    db.commit_transaction().expect("commit transaction failed");
+    // 3. detach and vacuum
+    db.execute_update("DETACH DATABASE target_db;", &[])
+        .expect("detach database failed");
+    db.execute_update("VACUUM;", &[]).expect("vacuum failed");
+}
+
 async fn factor_backtest_main(conf: &str, args: &HashMap<String, String>) {
     let config = Config::from_toml(conf).unwrap();
     let platform_config = Arc::new(PlatformConfig::from_config(config).unwrap());
@@ -204,6 +247,14 @@ pub async fn main() {
                 .map(String::as_str)
                 .unwrap_or("conf/platform_conf.toml");
             market_dump_main(conf).await;
+        }
+        Some("database_migration") => {
+            init_log("database_migration");
+            let conf = args
+                .get("config")
+                .map(String::as_str)
+                .unwrap_or("conf/platform_conf.toml");
+            db_migration_main(conf, &args).await;
         }
         Some("factor_backtest") => {
             init_log("factor_backtest");
