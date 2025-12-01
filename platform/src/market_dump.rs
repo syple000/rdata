@@ -22,7 +22,7 @@ async fn fetch_klines(
     let market_type_clone = market_type.clone();
     let mut from_open_time = from_ts;
     loop {
-        let klines = provider_clone
+        let klines = match provider_clone
             .get_klines(GetKlinesRequest {
                 symbol: symbol_clone.clone(),
                 interval: interval.clone(),
@@ -30,7 +30,19 @@ async fn fetch_klines(
                 end_time: None,
                 limit: Some(1000),
             })
-            .await?;
+            .await
+        {
+            Ok(klines) => klines,
+            Err(e) => {
+                log::error!(
+                    "Error fetching klines for {} {}: {:?}",
+                    market_type_clone.as_str(),
+                    symbol_clone,
+                    e
+                );
+                continue;
+            }
+        };
         if klines.is_empty() {
             break;
         }
@@ -145,7 +157,7 @@ async fn fetch_trades(
     let mut current_from_seq_id = from_seq_id;
     let mut current_from_ts = from_ts;
     loop {
-        let trades = provider_clone
+        let trades = match provider_clone
             .get_trades(crate::models::GetTradesRequest {
                 symbol: symbol_clone.clone(),
                 from_id: if current_from_seq_id > 0 {
@@ -161,7 +173,19 @@ async fn fetch_trades(
                 end_time: None,
                 limit: Some(1000),
             })
-            .await?;
+            .await
+        {
+            Ok(trades) => trades,
+            Err(e) => {
+                log::error!(
+                    "Error fetching trades for {} {}: {:?}",
+                    market_type_clone.as_str(),
+                    symbol_clone,
+                    e
+                );
+                continue;
+            }
+        };
         if trades.is_empty() {
             break;
         }
