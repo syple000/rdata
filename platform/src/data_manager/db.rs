@@ -209,6 +209,8 @@ pub fn create_kline_table(db: Arc<SQLiteDB>) -> Result<()> {
         close TEXT NOT NULL,
         volume TEXT NOT NULL,
         quote_volume TEXT NOT NULL,
+        taker_buy_volume TEXT NOT NULL,
+        taker_buy_quote_volume TEXT NOT NULL,
         is_closed INTEGER NOT NULL,
         UNIQUE(market_type, symbol, interval, open_time)
     );
@@ -257,12 +259,12 @@ pub fn update_kline_data(
 ) -> Result<()> {
     let placeholder = klines
         .iter()
-        .map(|_| "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .map(|_| "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
         r#"
-    INSERT INTO kline (market_type, symbol, interval, open_time, close_time, open, high, low, close, volume, quote_volume, is_closed)
+    INSERT INTO kline (market_type, symbol, interval, open_time, close_time, open, high, low, close, volume, quote_volume, taker_buy_volume, taker_buy_quote_volume, is_closed)
     VALUES {} 
     ON CONFLICT(market_type, symbol, interval, open_time) DO UPDATE SET
         close_time=excluded.close_time,
@@ -272,6 +274,8 @@ pub fn update_kline_data(
         close=excluded.close,
         volume=excluded.volume,
         quote_volume=excluded.quote_volume,
+        taker_buy_volume=excluded.taker_buy_volume,
+        taker_buy_quote_volume=excluded.taker_buy_quote_volume,
         is_closed=excluded.is_closed;
     "#,
         placeholder
@@ -291,6 +295,8 @@ pub fn update_kline_data(
                 kline.close.to_string(),
                 kline.volume.to_string(),
                 kline.quote_volume.to_string(),
+                kline.taker_buy_volume.to_string(),
+                kline.taker_buy_quote_volume.to_string(),
                 kline.is_closed.to_string(),
             ]
         })
@@ -359,7 +365,7 @@ pub fn get_klines(
     let order_direction = if start_time > 0 { "ASC" } else { "DESC" };
     let sql = format!(
         r#"
-    SELECT symbol, interval, open_time, close_time, open, high, low, close, volume, quote_volume, is_closed
+    SELECT symbol, interval, open_time, close_time, open, high, low, close, volume, quote_volume, taker_buy_volume, taker_buy_quote_volume, is_closed
     FROM kline
     WHERE market_type = ? AND symbol = ? AND interval = ? AND open_time >= ? AND open_time <= ?
     ORDER BY open_time {}
