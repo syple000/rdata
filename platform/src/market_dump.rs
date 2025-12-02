@@ -366,7 +366,7 @@ pub async fn market_dump(
             );
             let now = time::get_current_milli_timestamp();
             for symbol in symbol_list.iter() {
-                for interval in &[KlineInterval::OneMinute] {
+                for interval in &[KlineInterval::OneMinute, KlineInterval::OneSecond] {
                     let from_ts = match interval {
                         KlineInterval::OneMinute => now - 5 * 365 * 24 * 60 * 60 * 1000, // 最近5年
                         KlineInterval::OneSecond => now - 180 * 24 * 60 * 60 * 1000, // 最近6个月
