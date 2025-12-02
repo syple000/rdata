@@ -47,8 +47,9 @@ async fn fetch_klines(
             break;
         }
         log::info!(
-            "Fetched {} 1m klines for {} {} starting from {}",
+            "Fetched {} {} klines for {} {} starting from {}",
             klines.len(),
+            interval.as_str(),
             market_type_clone.as_str(),
             symbol_clone,
             from_open_time
