@@ -235,7 +235,7 @@ impl FactorCalculator for TradeFactorCalculators {
         }
         let start_id = trades.first().unwrap().seq_id;
         let end_id = trades.last().unwrap().seq_id;
-        if (end_id - start_id) / (self.window_size as u64 - 1) > 60_000 {
+        if end_id - start_id != self.window_size as u64 - 1 {
             log::warn!(
                 "Trades are not continuous for factor calculation: start {}, end {}, expected window size {}",
                 start_id,
