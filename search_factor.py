@@ -247,10 +247,10 @@ def generate_tasks(config: SearchConfig) -> List[dict]:
     for data_type in data_types:
         factor_types = KLINE_FACTOR_TYPES if data_type == "kline" else TRADE_FACTOR_TYPES
         
-        for factor_type in factor_types:
-            for window_size in window_sizes:
-                for step_ms in step_ms_list:
-                    for forward_steps in forward_steps_list:
+        for window_size in window_sizes:
+            for step_ms in step_ms_list:
+                for forward_steps in forward_steps_list:
+                    for factor_type in factor_types:
                         if data_type == "kline":
                             for interval in kline_intervals:
                                 tasks.append({
@@ -391,13 +391,13 @@ def parse_args():
                         default=["1m"],
                         help="Kline intervals to test")
     parser.add_argument("--window_sizes", type=int, nargs="+",
-                        default=[60, 120, 300],
+                        default=[10, 30, 60, 120],
                         help="Window sizes to test")
     parser.add_argument("--step_ms_list", type=int, nargs="+",
                         default=[60000],
                         help="Step milliseconds to test")
     parser.add_argument("--forward_steps", type=int, nargs="+",
-                        default=[10, 30, 60],
+                        default=[1, 3, 5, 10, 30, 60],
                         help="Forward steps to test")
     
     return parser.parse_args()
