@@ -187,6 +187,7 @@ impl FactorBacktester {
     }
 
     /// 计算 IC (Information Coefficient)
+    /// 计算 Rank IC (Spearman Correlation)
     pub fn calculate_ic(&self, records: &[FactorRecord]) -> f64 {
         let valid_records: Vec<&FactorRecord> = records
             .iter()
@@ -197,32 +198,71 @@ impl FactorBacktester {
             return 0.0;
         }
 
-        let n = valid_records.len() as f64;
-        let mean_factor = valid_records.iter().map(|r| r.factor_value).sum::<f64>() / n;
-        let mean_return = valid_records
+        let factor_values: Vec<f64> = valid_records.iter().map(|r| r.factor_value).collect();
+        let return_values: Vec<f64> = valid_records
             .iter()
             .map(|r| r.forward_return.unwrap())
-            .sum::<f64>()
-            / n;
+            .collect();
+
+        let factor_ranks = Self::get_ranks(&factor_values);
+        let return_ranks = Self::get_ranks(&return_values);
+
+        Self::calculate_pearson_correlation(&factor_ranks, &return_ranks)
+    }
+
+    fn get_ranks(values: &[f64]) -> Vec<f64> {
+        let n = values.len();
+        let mut indices: Vec<usize> = (0..n).collect();
+        // Sort indices based on values
+        indices.sort_by(|&i, &j| {
+            values[i]
+                .partial_cmp(&values[j])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut ranks = vec![0.0; n];
+        let mut i = 0;
+        while i < n {
+            let mut j = i + 1;
+            // Check for ties
+            while j < n && (values[indices[j]] - values[indices[i]]).abs() < 1e-9 {
+                j += 1;
+            }
+
+            // Assign average rank for ties
+            let rank_sum: f64 = (i..j).map(|k| (k + 1) as f64).sum();
+            let avg_rank = rank_sum / (j - i) as f64;
+
+            for k in i..j {
+                ranks[indices[k]] = avg_rank;
+            }
+            i = j;
+        }
+        ranks
+    }
+
+    fn calculate_pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
+        let n = x.len() as f64;
+        let mean_x = x.iter().sum::<f64>() / n;
+        let mean_y = y.iter().sum::<f64>() / n;
 
         let mut numerator = 0.0;
-        let mut var_factor = 0.0;
-        let mut var_return = 0.0;
+        let mut var_x = 0.0;
+        let mut var_y = 0.0;
 
-        for r in valid_records {
-            let f_diff = r.factor_value - mean_factor;
-            let r_diff = r.forward_return.unwrap() - mean_return;
-
-            numerator += f_diff * r_diff;
-            var_factor += f_diff * f_diff;
-            var_return += r_diff * r_diff;
+        for i in 0..x.len() {
+            let x_diff = x[i] - mean_x;
+            let y_diff = y[i] - mean_y;
+            numerator += x_diff * y_diff;
+            var_x += x_diff * x_diff;
+            var_y += y_diff * y_diff;
         }
 
-        if var_factor == 0.0 || var_return == 0.0 {
+        if var_x == 0.0 || var_y == 0.0 {
             return 0.0;
         }
 
-        numerator / (var_factor.sqrt() * var_return.sqrt())
+        numerator / (var_x.sqrt() * var_y.sqrt())
     }
 
     /// 计算 IC 和 IR (Information Ratio)
