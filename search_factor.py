@@ -106,6 +106,8 @@ class FactorResult:
     market_type: str
     symbol: str
     ic: Optional[float]
+    ic_mean: Optional[float]
+    ic_ir: Optional[float]
     records: Optional[int]
     status: str  # "success", "failed", "error"
     error_message: Optional[str]
@@ -143,22 +145,24 @@ def build_command(
     return cmd
 
 
-def parse_ic_from_log(log_file: str) -> tuple[Optional[float], Optional[int]]:
+def parse_ic_from_log(log_file: str) -> tuple[Optional[float], Optional[float], Optional[float], Optional[int]]:
     """从日志文件解析IC值和记录数"""
     try:
         with open(log_file, 'r') as f:
             content = f.read()
         
         # 匹配: factor backtest finished, records: 123, IC: 0.123456
-        pattern = r"factor backtest finished, records: (\d+), IC: ([-\d.]+)"
+        pattern = r"factor backtest finished, records: (\d+), IC: ([-\d.]+), IC Mean: ([-\d.]+), IC IR: ([-\d.]+)"
         match = re.search(pattern, content)
         if match:
             records = int(match.group(1))
             ic = float(match.group(2))
-            return ic, records
+            ic_mean = float(match.group(3))
+            ic_ir = float(match.group(4))
+            return ic, ic_mean, ic_ir, records
     except Exception as e:
         print(f"Error parsing log file {log_file}: {e}")
-    return None, None
+    return None, None, None, None
 
 
 def run_single_backtest(
@@ -191,6 +195,8 @@ def run_single_backtest(
         market_type=market_type,
         symbol=symbol,
         ic=None,
+        ic_mean=None,
+        ic_ir=None,
         records=None,
         status="pending",
         error_message=None,
@@ -212,9 +218,11 @@ def run_single_backtest(
         )
         
         if os.path.exists(log_file):
-            ic, records = parse_ic_from_log(log_file)
+            ic, ic_mean, ic_ir, records = parse_ic_from_log(log_file)
             if ic is not None:
                 result.ic = ic
+                result.ic_mean = ic_mean
+                result.ic_ir = ic_ir
                 result.records = records
                 result.status = "success"
             else:

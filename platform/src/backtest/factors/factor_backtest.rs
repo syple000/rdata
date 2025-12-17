@@ -224,4 +224,52 @@ impl FactorBacktester {
 
         numerator / (var_factor.sqrt() * var_return.sqrt())
     }
+
+    /// 计算 IC 和 IR (Information Ratio)
+    /// 将数据按天分组，计算每日 IC，然后计算 IC 的均值和标准差
+    /// 返回 (IC_Mean, IC_IR)
+    pub fn calculate_ic_ir(&self, records: &[FactorRecord]) -> (f64, f64) {
+        let mut daily_records: HashMap<u64, Vec<FactorRecord>> = HashMap::new();
+
+        for record in records {
+            if record.forward_return.is_some() && !record.factor_value.is_nan() {
+                // 按天分组 (UTC)
+                let day = record.timestamp / 86_400_000;
+                daily_records
+                    .entry(day)
+                    .or_insert_with(Vec::new)
+                    .push(record.clone());
+            }
+        }
+
+        let mut daily_ics = Vec::new();
+        for (_day, day_records) in daily_records {
+            // 样本太少不计算
+            if day_records.len() < 2 {
+                continue;
+            }
+            let ic = self.calculate_ic(&day_records);
+            if !ic.is_nan() {
+                daily_ics.push(ic);
+            }
+        }
+
+        if daily_ics.is_empty() {
+            return (0.0, 0.0);
+        }
+
+        let n = daily_ics.len() as f64;
+        let mean_ic = daily_ics.iter().sum::<f64>() / n;
+
+        let variance = daily_ics.iter().map(|x| (x - mean_ic).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+
+        let ir = if std_dev != 0.0 {
+            mean_ic / std_dev
+        } else {
+            0.0
+        };
+
+        (mean_ic, ir)
+    }
 }

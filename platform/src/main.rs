@@ -192,10 +192,13 @@ async fn factor_backtest_main(conf: &str, args: &HashMap<String, String>) {
         .await
         .expect("run_test failed");
     let ic = factor_backtest.calculate_ic(&factor_records);
+    let (ic_mean, ic_ir) = factor_backtest.calculate_ic_ir(&factor_records);
     log::info!(
-        "factor backtest finished, records: {}, IC: {:.6}",
+        "factor backtest finished, records: {}, IC: {:.6}, IC Mean: {:.6}, IC IR: {:.6}",
         factor_records.len(),
-        ic
+        ic,
+        ic_mean,
+        ic_ir
     );
 }
 
