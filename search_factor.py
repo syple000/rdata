@@ -343,7 +343,7 @@ def run_search(config: SearchConfig):
         
         # 实时打印结果
         if result.status == "success":
-            print(f"  ✓ IC: {result.ic:.6f}, Records: {result.records}")
+            print(f"  ✓ IC: {result.ic:.6f}, IC Mean: {result.ic_mean:.6f}, IC IR: {result.ic_ir:.6f}, Records: {result.records}")
         else:
             print(f"  ✗ {result.status}: {result.error_message}")
         
