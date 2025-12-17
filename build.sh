@@ -13,3 +13,6 @@ cp target/release/platform build/platform
 
 # 复制配置文件到build目录
 cp platform/conf/platform_conf.toml build/conf/platform_conf.toml
+
+# 复制search_factor脚本到build目录
+cp search_factor.py build/search_factor.py
