@@ -285,7 +285,12 @@ impl FactorBacktester {
         let mut daily_ics = Vec::new();
         for (_day, day_records) in daily_records {
             // 样本太少不计算
-            if day_records.len() < 2 {
+            if day_records.len() < 1200 {
+                log::error!(
+                    "Not enough samples ({}) for day {}, skipping IC calculation.",
+                    day_records.len(),
+                    _day
+                );
                 continue;
             }
             let ic = self.calculate_ic(&day_records);
