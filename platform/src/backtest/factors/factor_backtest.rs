@@ -80,9 +80,9 @@ impl FactorBacktester {
                 .await;
 
             // 只有当因子和价格都成功获取时才记录
-            if let (Ok((factor_value, factor_ts)), Ok((price, price_ts))) =
-                (factor_result, price_result)
-            {
+            if factor_result.is_ok() && price_result.is_ok() {
+                let (factor_value, factor_ts) = factor_result.unwrap();
+                let (price, price_ts) = price_result.unwrap();
                 // 检查因子行情时间戳的延迟
                 let factor_lag = if cur_ts >= factor_ts {
                     cur_ts - factor_ts
@@ -152,12 +152,24 @@ impl FactorBacktester {
                     });
                 }
             } else {
-                log::warn!(
-                    "Failed to get factor or price for {} at {} in {:?}, skipping this timestamp.",
-                    symbol,
-                    cur_ts,
-                    market_type
-                );
+                if factor_result.is_err() {
+                    log::warn!(
+                        "Failed to calculate factor for {} at {} in {:?}: {:?}",
+                        symbol,
+                        cur_ts,
+                        market_type,
+                        factor_result.err()
+                    );
+                }
+                if price_result.is_err() {
+                    log::warn!(
+                        "Failed to get price for {} at {} in {:?}: {:?}.",
+                        symbol,
+                        cur_ts,
+                        market_type,
+                        price_result.err()
+                    );
+                }
             }
 
             cur_ts += step_ms;

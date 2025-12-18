@@ -395,7 +395,7 @@ def parse_args():
     parser.add_argument("--output", type=str, default="factor_ic_results.csv",
                         help="Output CSV file path")
     parser.add_argument("--data_types", type=str, nargs="+", 
-                        default=["kline", "trade"],
+                        default=["kline"],
                         help="Data types to test (kline, trade)")
     parser.add_argument("--intervals", type=str, nargs="+",
                         default=["1m"],

@@ -67,6 +67,10 @@ impl PriceProvider for TradePriceProvider {
             .get_trades(market_type, &symbol.to_string(), Some(1))
             .await?;
         if trades.is_empty() {
+            log::warn!(
+                "No trades found for symbol {} when getting trade price",
+                symbol
+            );
             return Err(crate::errors::PlatformError::PlatformError {
                 message: format!("No trades found for symbol {}", symbol),
             });
