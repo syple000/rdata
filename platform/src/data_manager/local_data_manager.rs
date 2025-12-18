@@ -305,6 +305,18 @@ impl MarketDataManager for LocalMarketDataManager {
             .collect::<Vec<_>>();
         result.reverse();
 
+        // 检测result按时间顺序排列
+        for i in 1..result.len() {
+            if result[i].open_time <= result[i - 1].open_time {
+                return Err(PlatformError::PlatformError {
+                    message: format!(
+                        "klines not in order for {:?}, {}, {:?}",
+                        market_type, symbol, interval
+                    ),
+                });
+            }
+        }
+
         Ok(result)
     }
 
@@ -346,6 +358,15 @@ impl MarketDataManager for LocalMarketDataManager {
             .cloned()
             .collect::<Vec<_>>();
         result.reverse();
+
+        // 检测result按seq id顺序排列
+        for i in 1..result.len() {
+            if result[i].seq_id <= result[i - 1].seq_id {
+                return Err(PlatformError::PlatformError {
+                    message: format!("trades not in order for {:?}, {}", market_type, symbol),
+                });
+            }
+        }
 
         Ok(result)
     }
