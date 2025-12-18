@@ -287,7 +287,7 @@ def save_results(results: List[FactorResult], output_file: str):
     fieldnames = [
         "data_type", "factor_type", "interval", "window_size",
         "step_ms", "forward_steps", "market_type", "symbol",
-        "ic", "records", "status", "error_message"
+        "ic", "ic_mean", "ic_ir", "records", "status", "error_message"
     ]
     
     with open(output_file, 'w', newline='') as f:
@@ -304,6 +304,8 @@ def save_results(results: List[FactorResult], output_file: str):
                 "market_type": result.market_type,
                 "symbol": result.symbol,
                 "ic": result.ic if result.ic is not None else "",
+                "ic_mean": result.ic_mean if result.ic_mean is not None else "",
+                "ic_ir": result.ic_ir if result.ic_ir is not None else "",
                 "records": result.records if result.records is not None else "",
                 "status": result.status,
                 "error_message": result.error_message or "",
