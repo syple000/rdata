@@ -2,7 +2,7 @@ markets = ["binance_spot"]
 db_path = "/home/syple/code/rdata/data.db"
 
 [binance_spot]
-cache_capacity = 100
+cache_capacity = 1000
 market_refresh_interval_secs = 30
 trade_refresh_interval_secs = 5
 api_base_url = "https://api.binance.com"

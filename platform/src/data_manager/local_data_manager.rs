@@ -233,6 +233,14 @@ impl LocalMarketDataManager {
                 }
                 trades.push_back(trade.clone());
             }
+            log::info!(
+                "Loaded {} trades for {:?} {}, last trade id: {}, cache size: {}",
+                db_trades.len(),
+                market_type,
+                symbol,
+                trades.back().unwrap().seq_id,
+                trades.len()
+            );
         }
     }
 }
