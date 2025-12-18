@@ -406,32 +406,48 @@ pub fn get_trades(
     from_seq_id: Option<u64>,
     limit: Option<u64>,
 ) -> Result<Vec<Trade>> {
-    let start_time = start_time.unwrap_or(0);
-    let end_time = end_time.unwrap_or(i64::MAX as u64);
-    let from_seq_id = from_seq_id.unwrap_or(0);
     let limit = limit.unwrap_or(1000);
-    let order_direction = if start_time > 0 || from_seq_id > 0 {
-        "ASC"
+    let sql = if from_seq_id.is_some() {
+        let from_seq_id = from_seq_id.unwrap();
+        format!(
+            r#"
+        SELECT symbol, trade_id, price, quantity, timestamp, is_buyer_maker, seq_id
+        FROM trade
+        WHERE market_type = ? AND symbol = ? AND seq_id >= {}
+        ORDER BY seq_id ASC
+        LIMIT {};
+        "#,
+            from_seq_id, limit
+        )
     } else {
-        "DESC"
+        let start_time = start_time.unwrap_or(0);
+        let end_time = end_time.unwrap_or(i64::MAX as u64);
+        if start_time > 0 {
+            format!(
+                r#"
+            SELECT symbol, trade_id, price, quantity, timestamp, is_buyer_maker, seq_id
+            FROM trade
+            WHERE market_type = ? AND symbol = ? AND timestamp >= {} AND timestamp <= {}
+            ORDER BY timestamp ASC
+            LIMIT {};
+            "#,
+                start_time, end_time, limit
+            )
+        } else {
+            format!(
+                r#"
+            SELECT symbol, trade_id, price, quantity, timestamp, is_buyer_maker, seq_id
+            FROM trade
+            WHERE market_type = ? AND symbol = ? AND timestamp >= {} AND timestamp <= {}
+            ORDER BY timestamp DESC
+            LIMIT {};
+            "#,
+                start_time, end_time, limit
+            )
+        }
     };
-    let sql = format!(
-        r#"
-    SELECT symbol, trade_id, price, quantity, timestamp, is_buyer_maker, seq_id
-    FROM trade
-    WHERE market_type = ? AND symbol = ? AND timestamp >= ? AND timestamp <= ? AND seq_id >= ?
-    ORDER BY seq_id {}
-    LIMIT {};
-    "#,
-        order_direction, limit
-    );
-    let values: Vec<String> = vec![
-        market_type.as_str().to_string(),
-        symbol.to_string(),
-        start_time.to_string(),
-        end_time.to_string(),
-        from_seq_id.to_string(),
-    ];
+
+    let values: Vec<String> = vec![market_type.as_str().to_string(), symbol.to_string()];
     let params: Vec<&dyn ToSql> = values.iter().map(|v| v as &dyn ToSql).collect();
     let result = db
         .execute_query(&sql, &params)

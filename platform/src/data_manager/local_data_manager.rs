@@ -184,7 +184,6 @@ impl LocalMarketDataManager {
 
     async fn load_trades(&self, market_type: &MarketType, symbol: &String) -> Result<()> {
         let cur_ts = self.clock.cur_ts();
-
         let cache = match self.trades.get(&(market_type.clone(), symbol.clone())) {
             None => {
                 return Err(PlatformError::PlatformError {
